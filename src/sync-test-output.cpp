@@ -85,7 +85,7 @@ struct marker_finder
 			return 1.0f;
 		if (ts_next - ts_last > 2000000000)
 			return 0.0f;
-		float f = (ts_next - ts_last) * 0.5e-9;
+		float f = (ts_next - ts_last) * 0.5e-9f;
 		return 1.0f - f * f;
 	}
 
@@ -225,11 +225,8 @@ static void st_raw_video_insert_to_video_buf(struct sync_test_output *st, struct
 		linedata += frame->linesize[0];
 	}
 
-	struct st_video_buf f = {
-		.sum = sum / (127.5f * st->video_width * st->video_height),
-		.timestamp = frame->timestamp,
-	};
-	st->video_buf[st->video_buf_end] = f;
+	st->video_buf[st->video_buf_end].sum = sum / (127.5f * st->video_width * st->video_height);
+	st->video_buf[st->video_buf_end].timestamp = frame->timestamp;
 	if (st->video_buf_size < N_VIDEO_BUF) {
 		st->video_buf_end = (st->video_buf_end + 1) % N_VIDEO_BUF;
 		st->video_buf_size++;
@@ -310,8 +307,8 @@ static void st_raw_audio(void *data, struct audio_data *frames)
 			int16_t vi = (int16_t)(v * osc1 * 32767.0f);
 			st->audio_buffer[ch].push_back(vr, vi, buffer_length);
 
-			float detr = st->audio_buffer[ch].sum0r - st->audio_buffer[ch].sum1r;
-			float deti = st->audio_buffer[ch].sum0i - st->audio_buffer[ch].sum1i;
+			float detr = (float)(st->audio_buffer[ch].sum0r - st->audio_buffer[ch].sum1r);
+			float deti = (float)(st->audio_buffer[ch].sum0i - st->audio_buffer[ch].sum1i);
 			float det = hypotf(detr, deti) / (32767.0f * buffer_length);
 			// if (ch == 0) blog(LOG_INFO, "st_raw_audio-plot: %.05f %f %.05f %f", (ts + buffer_ns - st->start_ts) * 1e-9, v, (ts - st->start_ts) * 1e-9, det);
 
