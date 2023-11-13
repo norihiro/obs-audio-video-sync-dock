@@ -100,20 +100,22 @@ static void cb_audio_marker_found(void *param, calldata_t *data)
 void SyncTestDock::on_start_stop()
 {
 	if (!started) /* request to start */ {
-		sync_test = obs_output_create(ID_PREFIX "output", "sync-test-output", nullptr, nullptr);
-		if (!sync_test) {
+		OBSOutputAutoRelease o = obs_output_create(ID_PREFIX "output", "sync-test-output", nullptr, nullptr);
+		if (!o) {
 			blog(LOG_ERROR, "Failed to create sync-test-output.");
 			return;
 		}
 
-		auto *sh = obs_output_get_signal_handler(sync_test);
+		auto *sh = obs_output_get_signal_handler(o);
 		signal_handler_connect(sh, "video_marker_found", cb_video_marker_found, this);
 		signal_handler_connect(sh, "audio_marker_found", cb_audio_marker_found, this);
 
-		obs_output_start(sync_test);
+		obs_output_start(o);
 
 		if (startButton)
 			startButton->setText(obs_module_text("Button.Stop"));
+
+		sync_test = o;
 		started = true;
 	}
 	else /* request to stop */ {
