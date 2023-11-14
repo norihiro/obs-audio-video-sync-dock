@@ -18,15 +18,16 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 */
 
 #include <obs-module.h>
-#include <util/circlebuf.h>
 #include <inttypes.h>
 #include <deque>
+#include "quirc.h"
 
 #include "plugin-macros.generated.h"
 
 #define N_VIDEO_BUF 8
 #define AUDIO_CYCLES 32
 #define AUDIO_FREQUENCY 442
+#define N_CORNERS 4
 
 struct st_video_buf
 {
@@ -112,6 +113,13 @@ struct marker_finder
 	}
 };
 
+struct corner_type
+{
+	uint32_t x, y;
+	uint32_t r;
+	bool w;
+};
+
 struct sync_test_output
 {
 	obs_output_t *context;
@@ -125,12 +133,23 @@ struct sync_test_output
 	uint32_t audio_sample_rate = 0;
 	size_t audio_channels = 0;
 
+	struct quirc *qr = nullptr;
+	uint32_t qr_step;
+	struct corner_type qr_corners[N_CORNERS];
+	size_t qr_corner_size = 0;
+
 	struct st_video_buf video_buf[N_VIDEO_BUF];
 	size_t video_buf_start = 0, video_buf_end = 0, video_buf_size = 0;
 	struct marker_finder video_marker_finder;
 
 	struct st_audio_buffer audio_buffer[MAX_AV_PLANES];
 	struct marker_finder audio_marker_finder[MAX_AV_PLANES];
+
+	~sync_test_output()
+	{
+		if (qr)
+			quirc_destroy(qr);
+	}
 };
 
 static const char *st_get_name(void *)
@@ -192,6 +211,25 @@ static bool st_start(void *data)
 		return false;
 	}
 
+	uint32_t qr_width = st->video_width;
+	uint32_t qr_height = st->video_height;
+	st->qr_step = 1;
+	while (qr_width * qr_height > 640 * 480) {
+		qr_width /= 2;
+		qr_height /= 2;
+		st->qr_step *= 2;
+	}
+	if (!st->qr)
+		st->qr = quirc_new();
+	if (!st->qr) {
+		blog(LOG_ERROR, "failed to create QR code encoding context");
+		return false;
+	}
+	if (quirc_resize(st->qr, qr_width, qr_height) < 0) {
+		blog(LOG_ERROR, "failed to set-up QR code encoding context");
+		return false;
+	}
+
 	st->audio_sample_rate = audio_output_get_sample_rate(audio);
 	st->audio_channels = audio_output_get_channels(audio);
 
@@ -207,22 +245,90 @@ static void st_stop(void *data, uint64_t)
 	obs_output_end_data_capture(st->context);
 }
 
+template<typename T> T sq(T x)
+{
+	return x * x;
+}
+
+static inline int qrcode_length(const struct quirc_point *corners)
+{
+	auto l01 = hypotf((float)(corners[0].x - corners[1].x), (float)(corners[0].y - corners[1].y));
+	auto l03 = hypotf((float)(corners[0].x - corners[3].x), (float)(corners[0].y - corners[3].y));
+	return (int)((l01 + l03) / 2.0f);
+}
+
+static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video_data *frame)
+{
+	int w, h;
+	auto qr = st->qr;
+	uint8_t *qrbuf = quirc_begin(qr, &w, &h);
+
+	const auto qr_step = st->qr_step;
+	const auto pixelsize = st->video_pixelsize * qr_step;
+	const uint8_t *linedata = frame->data[0] + frame->linesize[0] * (qr_step / 2);
+	auto *ptr = qrbuf;
+	for (int y = 0; y < h; y++) {
+		const uint8_t *data = linedata + st->video_pixeloffset + st->video_pixelsize * (qr_step / 2);
+		for (int x = 0; x < w; x++) {
+			*ptr++ = *data;
+			data += pixelsize;
+		}
+
+		linedata += frame->linesize[0] * qr_step;
+	}
+
+	quirc_end(qr);
+
+	int num_codes = quirc_count(qr);
+
+	for (int i = 0; i < num_codes; i++) {
+		struct quirc_code code;
+		struct quirc_data data;
+		quirc_extract(qr, i, &code);
+		auto err = quirc_decode(&code, &data);
+		if (!err) {
+			st->qr_corner_size = 4;
+			int r = qrcode_length(code.corners) * 3 / 4;
+			for (int j = 0; j < 4; j++) {
+				st->qr_corners[j].x = code.corners[j].x * st->qr_step;
+				st->qr_corners[j].y = code.corners[j].y * st->qr_step;
+				st->qr_corners[j].r = r;
+				st->qr_corners[j].w = j == 1 || j == 2; // TODO: decode from the code
+			}
+		}
+	}
+}
+
 static void st_raw_video_insert_to_video_buf(struct sync_test_output *st, struct video_data *frame)
 {
+	if (st->qr_corner_size != 4)
+		return;
+
 	int64_t sum = 0;
 
 	const uint8_t *linedata = frame->data[0];
-	for (uint32_t y = 0; y < st->video_height; y++) {
-		const uint8_t *data = linedata + st->video_pixeloffset;
-		for (uint32_t x = 0; x < st->video_width; x++) {
-			if (x < st->video_width / 2)
-				sum -= *data;
-			else
-				sum += *data;
-			data += st->video_pixelsize;
-		}
 
-		linedata += frame->linesize[0];
+	for (size_t i = 0; i < N_CORNERS; i++) {
+		const struct corner_type c = st->qr_corners[i];
+		uint32_t x0 = c.x > c.r ? c.x - c.r : 0;
+		uint32_t x1 = std::min(c.x + c.r, st->video_height);
+		uint32_t y0 = c.y > c.r ? c.y - c.r : 0;
+		uint32_t y1 = std::min(c.y + c.r, st->video_height);
+
+		for (uint32_t y = y0; y < y1; y++) {
+			const uint8_t *data = linedata + frame->linesize[0] * y + st->video_pixeloffset;
+
+			for (uint32_t x = x0; x < x1; x++) {
+				if (sq(x - c.x) + sq(y - c.y) > sq(c.r))
+					continue;
+
+				uint8_t v = data[st->video_pixelsize * x];
+				if (c.w)
+					sum += v;
+				else
+					sum -= v;
+			}
+		}
 	}
 
 	st->video_buf[st->video_buf_end].sum = sum / (127.5f * st->video_width * st->video_height);
@@ -279,6 +385,7 @@ static void st_raw_video(void *data, struct video_data *frame)
 	if (!st->start_ts)
 		st->start_ts = frame->timestamp;
 
+	st_raw_video_qrcode_decode(st, frame);
 	st_raw_video_insert_to_video_buf(st, frame);
 	st_raw_video_search_marker(st);
 }
