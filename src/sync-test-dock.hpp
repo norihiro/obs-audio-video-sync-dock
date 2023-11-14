@@ -13,7 +13,6 @@ public:
 
 private:
 	QPushButton *startButton = nullptr;
-	bool started = 0;
 
 	QLabel *latencyDisplay = nullptr;
 
