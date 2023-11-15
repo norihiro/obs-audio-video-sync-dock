@@ -50,6 +50,10 @@ set(PLUGIN_SOURCES
 	src/sync-test-output.cpp
 	src/sync-test-dock.cpp
 	src/dock-compat.cpp
+	deps/quirc/lib/decode.c
+	deps/quirc/lib/identify.c
+	deps/quirc/lib/quirc.c
+	deps/quirc/lib/version_db.c
 )
 
 add_library(${CMAKE_PROJECT_NAME} MODULE ${PLUGIN_SOURCES})
@@ -72,6 +76,7 @@ target_include_directories(${CMAKE_PROJECT_NAME}
 	PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}
 	${CMAKE_CURRENT_BINARY_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/deps/quirc/lib
 )
 
 if(OS_WINDOWS)
@@ -92,6 +97,15 @@ if(OS_LINUX)
 		target_compile_options(${PROJECT_NAME} PRIVATE -coverage)
 		target_link_options(${PROJECT_NAME} PRIVATE -coverage)
 	endif()
+
+	set_source_files_properties(
+		deps/quirc/lib/identify.c
+		PROPERTIES COMPILE_OPTIONS "-Wno-unused-parameter;-Wno-sign-compare"
+	)
+	set_source_files_properties(
+		deps/quirc/lib/quirc.c
+		PROPERTIES COMPILE_OPTIONS "-Wno-sign-compare"
+	)
 endif()
 
 if(APPLE)
