@@ -162,6 +162,7 @@ static void *st_create(obs_data_t *, obs_output_t *output)
 	static const char *signals[] = {
 		"void video_marker_found(int timestamp, float score)",
 		"void audio_marker_found(int channel, int timestamp, float score)",
+		"void qrcode_found(int timestamp, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3)",
 		NULL,
 	};
 	signal_handler_add_array(obs_output_get_signal_handler(output), signals);
@@ -286,6 +287,23 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 		struct quirc_data data;
 		quirc_extract(qr, i, &code);
 		auto err = quirc_decode(&code, &data);
+
+		uint8_t stack[384];
+		struct calldata cd;
+		calldata_init_fixed(&cd, stack, sizeof(stack));
+		auto *sh = obs_output_get_signal_handler(st->context);
+
+		calldata_set_int(&cd, "timestamp", frame->timestamp - st->start_ts);
+		calldata_set_int(&cd, "x0", code.corners[0].x * st->qr_step);
+		calldata_set_int(&cd, "y0", code.corners[0].y * st->qr_step);
+		calldata_set_int(&cd, "x1", code.corners[1].x * st->qr_step);
+		calldata_set_int(&cd, "y1", code.corners[1].y * st->qr_step);
+		calldata_set_int(&cd, "x2", code.corners[2].x * st->qr_step);
+		calldata_set_int(&cd, "y2", code.corners[2].y * st->qr_step);
+		calldata_set_int(&cd, "x3", code.corners[3].x * st->qr_step);
+		calldata_set_int(&cd, "y3", code.corners[3].y * st->qr_step);
+		signal_handler_signal(sh, "qrcode_found", &cd);
+
 		if (!err) {
 			st->qr_corner_size = 4;
 			int r = qrcode_length(code.corners) * 3 / 4;
