@@ -28,5 +28,5 @@ private:
 
 private slots:
 	void on_video_marker_found(uint64_t timestamp, double score);
-	void on_audio_marker_found(size_t channel, uint64_t timestamp, double score);
+	void on_audio_marker_found(int channel, uint64_t timestamp, double score);
 };

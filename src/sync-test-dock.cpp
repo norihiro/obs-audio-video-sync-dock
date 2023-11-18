@@ -59,8 +59,12 @@ SyncTestDock::~SyncTestDock()
 	}
 }
 
+Q_DECLARE_METATYPE(uint64_t);
+
 extern "C" QWidget *create_sync_test_dock()
 {
+	qRegisterMetaType<uint64_t>("uint64_t");
+
 	const auto main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	return static_cast<QWidget *>(new SyncTestDock(main_window));
 }
@@ -93,7 +97,7 @@ static void cb_audio_marker_found(void *param, calldata_t *data)
 	if (!calldata_get_float(data, "score", &score))
 		return;
 
-	QMetaObject::invokeMethod(dock, "on_audio_marker_found", Q_ARG(size_t, channel), Q_ARG(uint64_t, timestamp),
+	QMetaObject::invokeMethod(dock, "on_audio_marker_found", Q_ARG(int, channel), Q_ARG(uint64_t, timestamp),
 				  Q_ARG(double, score));
 };
 
@@ -133,9 +137,9 @@ void SyncTestDock::on_video_marker_found(uint64_t timestamp, double)
 	last_video_ts = timestamp;
 }
 
-void SyncTestDock::on_audio_marker_found(size_t channel, uint64_t timestamp, double)
+void SyncTestDock::on_audio_marker_found(int channel, uint64_t timestamp, double)
 {
-	blog(LOG_INFO, "%s: [%zu] %.05f", __func__, channel, timestamp * 1e-9);
+	blog(LOG_INFO, "%s: [%d] %.05f", __func__, channel, timestamp * 1e-9);
 	ASSERT_THREAD(OBS_TASK_UI);
 	if (MAX_AV_PLANES <= channel)
 		return;
