@@ -1,0 +1,22 @@
+name: Python Lint Check
+
+on:
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  pylint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Lint
+      run: |
+        set -e
+        cd tool
+        pip3 install -U -r requirements.txt
+        pip3 install -U pylint
+        ./lint.sh
