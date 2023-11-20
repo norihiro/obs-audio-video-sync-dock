@@ -20,14 +20,23 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <obs-module.h>
 #include <inttypes.h>
 #include <deque>
+#include <list>
+#include <stdlib.h>
+#include <mutex>
+#include <complex>
 #include "quirc.h"
+#include "sync-test-output.hpp"
+#include "peak-finder.hpp"
 
 #include "plugin-macros.generated.h"
 
-#define N_VIDEO_BUF 8
-#define AUDIO_CYCLES 32
-#define AUDIO_FREQUENCY 442
+#define N_VIDEO_BUF 4
 #define N_CORNERS 4
+
+#define N_AUDIO_SYMBOLS 16
+#define N_SYMBOL_BUFFER 16
+
+#define TYPE_AUDIO_START_AT_SYNC 1
 
 struct st_video_buf
 {
@@ -37,95 +46,59 @@ struct st_video_buf
 
 struct st_audio_buffer
 {
-	std::deque<std::pair<int16_t, int16_t>> buffer0;
-	std::deque<std::pair<int16_t, int16_t>> buffer1;
-	int32_t sum0r = 0, sum0i = 0;
-	int32_t sum1r = 0, sum1i = 0;
+	std::deque<std::pair<int32_t, int32_t>> buffer;
 
 	void push_back(int16_t xr, int16_t xi, size_t length)
 	{
-		buffer0.push_back(std::make_pair(xr, xi));
-		sum0r += xr;
-		sum0i += xi;
+		int32_t vr = xr, vi = xi;
+		if (buffer.size()) {
+			vr += buffer.back().first;
+			vi += buffer.back().second;
+		}
+		buffer.push_back(std::make_pair(vr, vi));
 
-		if (buffer0.size() <= length)
+		if (buffer.size() <= length)
 			return;
 
-		int16_t vr = buffer0.front().first;
-		int16_t vi = buffer0.front().second;
-		buffer0.pop_front();
-		sum0r -= vr;
-		sum0i -= vi;
-
-		buffer1.push_back(std::make_pair(vr, vi));
-		sum1r += vr;
-		sum1i += vi;
-
-		if (buffer1.size() <= length)
-			return;
-
-		vr = buffer1.front().first;
-		vi = buffer1.front().second;
-		buffer1.pop_front();
-		sum1r -= vr;
-		sum1i -= vi;
+		buffer.pop_front();
 	};
+
+	std::pair<int32_t, int32_t> sum(size_t n_from_last)
+	{
+		if (n_from_last >= buffer.size())
+			return buffer[0];
+		return buffer[buffer.size() - n_from_last - 1];
+	}
 };
 
-struct marker_finder
+std::pair<int32_t, int32_t> operator-(std::pair<int32_t, int32_t> a, std::pair<int32_t, int32_t> b)
 {
-	uint64_t cand_ts = 0;
-	uint64_t last_ts = 0;
+	return std::make_pair(a.first - b.first, a.second - b.second);
+}
 
-	float cand_score = 0.0f;
-	float last_score = 0.0f;
-
-	static float dumping(uint64_t ts_last, uint64_t ts_next)
-	{
-		if (ts_next <= ts_last)
-			return 1.0f;
-		if (ts_next - ts_last > 2000000000)
-			return 0.0f;
-		float f = (ts_next - ts_last) * 0.5e-9f;
-		return 1.0f - f * f;
-	}
-
-	bool append(float score, uint64_t ts, uint64_t wait_ts)
-	{
-		if (score > cand_score * dumping(cand_ts, ts)) {
-			cand_ts = ts;
-			cand_score = score;
-			/* When updating candidate, which is the recent peak,
-			 * there might be larger score coming next. */
-			return false;
-		}
-
-		if (cand_ts + wait_ts > ts)
-			return false;
-
-		if (cand_ts > last_ts && cand_score > last_score * dumping(last_ts, cand_ts)) {
-			last_ts = cand_ts;
-			last_score = cand_score;
-			return true;
-		}
-
-		return false;
-	}
-};
+std::complex<float> int16_to_complex(std::pair<int32_t, int32_t> x)
+{
+	return std::complex<float>((float)x.first, (float)x.second) / 32767.0f;
+}
 
 struct corner_type
 {
 	uint32_t x, y;
-	uint32_t r;
-	bool w;
+	uint32_t r = 0;
+};
+
+struct sync_index
+{
+	int index = -1;
+	uint64_t video_ts = 0;
+	uint64_t audio_ts = 0;
 };
 
 struct sync_test_output
 {
 	obs_output_t *context;
 
-	uint64_t start_ts = 0;
-
+	/* Configuration from OBS output context */
 	uint32_t video_width = 0, video_height = 0;
 	uint32_t video_pixelsize = 0;
 	uint32_t video_pixeloffset = 0;
@@ -133,17 +106,33 @@ struct sync_test_output
 	uint32_t audio_sample_rate = 0;
 	size_t audio_channels = 0;
 
+	/* Sync pattern detection from video */
+	uint64_t start_ts = 0;
+
 	struct quirc *qr = nullptr;
 	uint32_t qr_step;
 	struct corner_type qr_corners[N_CORNERS];
-	size_t qr_corner_size = 0;
+	st_qr_data qr_data;
 
 	struct st_video_buf video_buf[N_VIDEO_BUF];
-	size_t video_buf_start = 0, video_buf_end = 0, video_buf_size = 0;
-	struct marker_finder video_marker_finder;
+	uint32_t video_buf_start = 0, video_buf_end = 0, video_buf_size = 0;
+	struct peak_finder video_marker_finder;
 
-	struct st_audio_buffer audio_buffer[MAX_AV_PLANES];
-	struct marker_finder audio_marker_finder[MAX_AV_PLANES];
+	/* Sync pattern detection from audio */
+	struct st_audio_buffer audio_buffer;
+	struct peak_finder audio_marker_finder;
+
+	/* Multiplex sync pattern detection result */
+	std::list<struct sync_index> sync_indices;
+
+	std::mutex mutex;
+
+	/* Audio pattern information from video to audio */
+	uint32_t f = 0;
+	uint32_t c = 0;
+
+	uint32_t f_last = 0;
+	uint32_t c_last = 0;
 
 	~sync_test_output()
 	{
@@ -160,9 +149,10 @@ static const char *st_get_name(void *)
 static void *st_create(obs_data_t *, obs_output_t *output)
 {
 	static const char *signals[] = {
-		"void video_marker_found(int timestamp, float score)",
-		"void audio_marker_found(int channel, int timestamp, float score)",
+		"void video_marker_found(ptr data)",
+		"void audio_marker_found(ptr data)",
 		"void qrcode_found(int timestamp, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3)",
+		"void sync_found(int index, int video_ts, int audio_ts, float score)",
 		NULL,
 	};
 	signal_handler_add_array(obs_output_get_signal_handler(output), signals);
@@ -283,10 +273,17 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 	int num_codes = quirc_count(qr);
 
 	for (int i = 0; i < num_codes; i++) {
+		// (x0, y0): top left
+		// (x1, y1): top right
+		// (x2, y2): bottom right
+		// (x3, y3): bottom left
+
 		struct quirc_code code;
 		struct quirc_data data;
 		quirc_extract(qr, i, &code);
 		auto err = quirc_decode(&code, &data);
+		if (err)
+			continue;
 
 		uint8_t stack[384];
 		struct calldata cd;
@@ -304,44 +301,50 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 		calldata_set_int(&cd, "y3", code.corners[3].y * st->qr_step);
 		signal_handler_signal(sh, "qrcode_found", &cd);
 
-		if (!err) {
-			st->qr_corner_size = 4;
-			int r = qrcode_length(code.corners) * 3 / 4;
-			for (int j = 0; j < 4; j++) {
-				st->qr_corners[j].x = code.corners[j].x * st->qr_step;
-				st->qr_corners[j].y = code.corners[j].y * st->qr_step;
-				st->qr_corners[j].r = r;
-				st->qr_corners[j].w = j == 1 || j == 2; // TODO: decode from the code
-			}
+		int r = qrcode_length(code.corners) * 3 / 8;
+		for (int j = 0; j < 4; j++) {
+			st->qr_corners[j].x = code.corners[j].x * st->qr_step;
+			st->qr_corners[j].y = code.corners[j].y * st->qr_step;
+			st->qr_corners[j].r = r;
+		}
+
+		data.payload[QUIRC_MAX_PAYLOAD - 1] = 0;
+		if (!st->qr_data.decode((char *)data.payload))
+			continue;
+
+		if (st->qr_data.f > 0 && st->qr_data.c > 0) {
+			std::unique_lock<std::mutex> lock(st->mutex);
+			st->f = st->qr_data.f;
+			st->c = st->qr_data.c;
 		}
 	}
 }
 
 static void st_raw_video_insert_to_video_buf(struct sync_test_output *st, struct video_data *frame)
 {
-	if (st->qr_corner_size != 4)
-		return;
-
 	int64_t sum = 0;
 
 	const uint8_t *linedata = frame->data[0];
 
 	for (size_t i = 0; i < N_CORNERS; i++) {
 		const struct corner_type c = st->qr_corners[i];
+		if (c.r == 0)
+			return;
 		uint32_t x0 = c.x > c.r ? c.x - c.r : 0;
 		uint32_t x1 = std::min(c.x + c.r, st->video_height);
 		uint32_t y0 = c.y > c.r ? c.y - c.r : 0;
 		uint32_t y1 = std::min(c.y + c.r, st->video_height);
+		uint32_t sq_r = sq(c.r);
 
 		for (uint32_t y = y0; y < y1; y++) {
 			const uint8_t *data = linedata + frame->linesize[0] * y + st->video_pixeloffset;
 
 			for (uint32_t x = x0; x < x1; x++) {
-				if (sq(x - c.x) + sq(y - c.y) > sq(c.r))
+				if (sq(x - c.x) + sq(y - c.y) > sq_r)
 					continue;
 
 				uint8_t v = data[st->video_pixelsize * x];
-				if (c.w)
+				if (i & 1)
 					sum += v;
 				else
 					sum -= v;
@@ -360,9 +363,59 @@ static void st_raw_video_insert_to_video_buf(struct sync_test_output *st, struct
 	}
 }
 
+static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts, bool is_video)
+{
+	std::unique_lock<std::mutex> lock(st->mutex);
+	for (auto it = st->sync_indices.begin(); it != st->sync_indices.end();) {
+
+		if ((it->video_ts && is_video) || (it->audio_ts && !is_video)) {
+			if (((index - it->index) & 0xFF) > 0x7F) {
+				st->sync_indices.erase(it++);
+				continue;
+			}
+		}
+
+		if (it->index != index) {
+			it++;
+			continue;
+		}
+		if ((it->video_ts && !is_video) || (it->audio_ts && is_video)) {
+			(is_video ? it->video_ts : it->audio_ts) = ts;
+
+			uint8_t stack[512];
+			struct calldata cd;
+			calldata_init_fixed(&cd, stack, sizeof(stack));
+			auto *sh = obs_output_get_signal_handler(st->context);
+
+			calldata_set_int(&cd, "index", index);
+			calldata_set_int(&cd, "video_ts", (long long)it->video_ts);
+			calldata_set_int(&cd, "audio_ts", (long long)it->audio_ts);
+			calldata_set_float(&cd, "score", 0.0);
+			signal_handler_signal(sh, "sync_found", &cd);
+
+			st->sync_indices.erase(it);
+			return;
+		}
+
+		/* Remove the old one. Later, insert the new one to the end */
+		st->sync_indices.erase(it);
+		break;
+	}
+
+	while (st->sync_indices.size() >= 128)
+		st->sync_indices.erase(st->sync_indices.begin());
+
+	auto &ref = st->sync_indices.emplace_back();
+	ref.index = index;
+	(is_video ? ref.video_ts : ref.audio_ts) = ts;
+}
+
 static void st_raw_video_search_marker(struct sync_test_output *st)
 {
 	if (st->video_buf_size != N_VIDEO_BUF)
+		return;
+
+	if (!st->qr_data.valid)
 		return;
 
 	uint64_t timestamp = 0;
@@ -382,14 +435,22 @@ static void st_raw_video_search_marker(struct sync_test_output *st)
 		    score, timestamp,
 		    st->video_buf[(st->video_buf_start + N_VIDEO_BUF - 1) / N_VIDEO_BUF].timestamp -
 			    st->video_buf[st->video_buf_start].timestamp)) {
-		uint8_t stack[128];
+		uint8_t stack[64];
 		struct calldata cd;
 		calldata_init_fixed(&cd, stack, sizeof(stack));
 		auto *sh = obs_output_get_signal_handler(st->context);
 
-		calldata_set_int(&cd, "timestamp", st->video_marker_finder.last_ts - st->start_ts);
-		calldata_set_float(&cd, "score", st->video_marker_finder.last_score);
+		struct video_marker_found_s data;
+		data.timestamp = st->video_marker_finder.last_ts - st->start_ts;
+		data.score = st->video_marker_finder.last_score;
+		data.qr_data = st->qr_data;
+
+		calldata_set_ptr(&cd, "data", &data);
 		signal_handler_signal(sh, "video_marker_found", &cd);
+
+		sync_index_found(st, st->qr_data.index, st->video_marker_finder.last_ts - st->start_ts, true);
+
+		st->qr_data.valid = false;
 	}
 }
 
@@ -408,6 +469,78 @@ static void st_raw_video(void *data, struct video_data *frame)
 	st_raw_video_search_marker(st);
 }
 
+static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::complex<float> phase, uint64_t ts)
+{
+	uint32_t symbol_num = st->audio_sample_rate * st->c_last;
+	uint32_t symbol_den = st->f_last;
+
+	struct audio_marker_found_s data;
+	data.timestamp = ts - st->start_ts;
+	data.index = st->qr_data.index;
+	data.score = 0.0f;
+
+	float data_flt[8];
+	uint8_t index = 0;
+	for (int i = 0; i < 8; i++) {
+		auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
+		auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
+		auto x = int16_to_complex(s0 - s1);
+		auto r = (x / phase).real();
+		bool bit = r > 0.0f ? true : false;
+		if (bit)
+			index |= 1 << i;
+		data.score += std::abs(r);
+		data_flt[i] = r;
+	}
+
+	blog(LOG_INFO, "st_raw_audio_decode_data: Decoded %u rcv_ts=%.03f %f %f %f %f %f %f %f %f", index,
+	     (ts - st->start_ts) * 1e-9, data_flt[7], data_flt[6], data_flt[5], data_flt[4], data_flt[3], data_flt[2],
+	     data_flt[1], data_flt[0]);
+
+	uint8_t stack[64];
+	struct calldata cd;
+	calldata_init_fixed(&cd, stack, sizeof(stack));
+	auto *sh = obs_output_get_signal_handler(st->context);
+
+	calldata_set_ptr(&cd, "data", &data);
+	signal_handler_signal(sh, "audio_marker_found", &cd);
+
+	sync_index_found(st, index, ts - st->start_ts, false);
+}
+
+static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint64_t ts, float v0)
+{
+	uint32_t c = st->c_last;
+	uint32_t f = st->f_last;
+	uint64_t symbol_ns = util_mul_div64(c, 1000000000ULL, f);
+	size_t buffer_length = (size_t)(st->audio_sample_rate * c * N_SYMBOL_BUFFER / f);
+
+	/* Test the preamble pattern 0xF0  */
+	auto s0 = st->audio_buffer.sum(0);
+	auto s4 = st->audio_buffer.sum(buffer_length * 4 / N_SYMBOL_BUFFER);
+	auto s8 = st->audio_buffer.sum(buffer_length * 8 / N_SYMBOL_BUFFER);
+
+	float det = std::abs(int16_to_complex(s4 - s0) - int16_to_complex(s8 - s4));
+
+	UNUSED_PARAMETER(v0);
+	// blog(LOG_INFO, "st_raw_audio-plot: %.05f %f %f", (ts - st->start_ts) * 1e-9, v0, det);
+
+	if (st->audio_marker_finder.append(det, ts, symbol_ns * 8)) {
+		auto s8 = st->audio_buffer.sum(buffer_length * 8 / N_SYMBOL_BUFFER);
+		auto s12 = st->audio_buffer.sum(buffer_length * 12 / N_SYMBOL_BUFFER);
+		auto s16 = st->audio_buffer.sum(buffer_length * 16 / N_SYMBOL_BUFFER);
+
+		auto x = int16_to_complex(s12 - s16) - int16_to_complex(s8 - s12);
+
+		if (st->qr_data.type_flags & TYPE_AUDIO_START_AT_SYNC)
+			ts -= symbol_ns * N_AUDIO_SYMBOLS;
+		else
+			ts -= symbol_ns * (N_AUDIO_SYMBOLS / 2);
+
+		st_raw_audio_decode_data(st, x / std::abs(x), ts);
+	}
+}
+
 static void st_raw_audio(void *data, struct audio_data *frames)
 {
 	auto *st = (struct sync_test_output *)data;
@@ -415,40 +548,39 @@ static void st_raw_audio(void *data, struct audio_data *frames)
 	if (!st->start_ts)
 		return;
 
-	float phase = (frames->timestamp % 1000000000) * (float)(1e-9 * 2 * M_PI * AUDIO_FREQUENCY);
-	float phase_step = (float)(2 * M_PI * AUDIO_FREQUENCY) / st->audio_sample_rate;
-	size_t buffer_length = (size_t)(st->audio_sample_rate * AUDIO_CYCLES / AUDIO_FREQUENCY);
-	uint64_t buffer_ns = util_mul_div64(buffer_length, 1000000000ULL, st->audio_sample_rate);
-	uint64_t ts0 = frames->timestamp - buffer_ns;
+	std::unique_lock<std::mutex> lock(st->mutex);
+	uint32_t f = st->f;
+	uint32_t c = st->c;
+	lock.unlock();
+
+	if (f <= 0 || c <= 0)
+		return;
+
+	if (f != st->f_last || c != st->c_last) {
+		st->f_last = f;
+		st->c_last = c;
+		st->audio_buffer.buffer.clear();
+	}
+
+	float phase = (frames->timestamp % 1000000000) * (float)(1e-9 * 2 * M_PI * f);
+	float phase_step = (float)(2 * M_PI * f) / st->audio_sample_rate;
+	size_t buffer_length = (size_t)(st->audio_sample_rate * c * N_SYMBOL_BUFFER / f);
 
 	for (uint32_t i = 0; i < frames->frames; i++) {
 		float osc0 = sinf(phase + phase_step * i);
 		float osc1 = cosf(phase + phase_step * i);
-		uint64_t ts = ts0 + util_mul_div64(i, 1000000000ULL, st->audio_sample_rate);
+		uint64_t ts = frames->timestamp + util_mul_div64(i, 1000000000ULL, st->audio_sample_rate);
 
-		for (size_t ch = 0; ch < st->audio_channels; ch++) {
-			float v = ((float *)frames->data[ch])[i];
-			int16_t vr = (int16_t)(v * osc0 * 32767.0f);
-			int16_t vi = (int16_t)(v * osc1 * 32767.0f);
-			st->audio_buffer[ch].push_back(vr, vi, buffer_length);
+		float v0 = ((float *)frames->data[0])[i];
+		float v1 = st->audio_channels >= 2 ? ((float *)frames->data[1])[i] : 0.0f;
+		int16_t vr = (int16_t)((v0 * osc0 - v1 * osc1) * 16383.0f);
+		int16_t vi = (int16_t)((v0 * osc1 + v1 * osc0) * 16383.0f);
+		st->audio_buffer.push_back(vr, vi, buffer_length);
 
-			float detr = (float)(st->audio_buffer[ch].sum0r - st->audio_buffer[ch].sum1r);
-			float deti = (float)(st->audio_buffer[ch].sum0i - st->audio_buffer[ch].sum1i);
-			float det = hypotf(detr, deti) / (32767.0f * buffer_length);
-			// if (ch == 0) blog(LOG_INFO, "st_raw_audio-plot: %.05f %f %.05f %f", (ts + buffer_ns - st->start_ts) * 1e-9, v, (ts - st->start_ts) * 1e-9, det);
+		if (st->audio_buffer.buffer.size() < buffer_length)
+			continue;
 
-			if (st->audio_marker_finder[ch].append(det, ts, buffer_ns)) {
-				uint8_t stack[256];
-				struct calldata cd;
-				calldata_init_fixed(&cd, stack, sizeof(stack));
-				auto *sh = obs_output_get_signal_handler(st->context);
-
-				calldata_set_int(&cd, "channel", ch);
-				calldata_set_int(&cd, "timestamp", st->audio_marker_finder[ch].last_ts - st->start_ts);
-				calldata_set_float(&cd, "score", st->audio_marker_finder[ch].last_score);
-				signal_handler_signal(sh, "audio_marker_found", &cd);
-			}
-		}
+		st_raw_audio_test_preamble(st, ts, v0);
 	}
 }
 
