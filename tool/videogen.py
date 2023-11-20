@@ -46,6 +46,7 @@ class Context:
         self.ar = int(ar)
         self.width = 1280
         self.height = 720
+        self.amplitude = 0.8
         self._img_index = 0
         self._sync_image_cache = {}
         self.type_flags = TYPE_AUDIO_START_AT_SYNC
@@ -173,7 +174,7 @@ class Pattern:
             i_data = i * f // (ctx.ar * c)
             if data & (0x8000 >> i_data):
                 sample = -sample
-            sample = round(sample * 32767)
+            sample = round(sample * 32767 * ctx.amplitude)
             buffer += (sample & 0xFFFF).to_bytes(2, 'little')
             i += 1
         self.i += 1
