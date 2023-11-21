@@ -13,6 +13,7 @@ import qrcode
 
 
 TYPE_AUDIO_START_AT_SYNC = 1
+TYPE_AUDIO_QPSK = 2
 
 
 def _div_ceil(n, m):
@@ -49,7 +50,7 @@ class Context:
         self.amplitude = 0.8
         self._img_index = 0
         self._sync_image_cache = {}
-        self.type_flags = TYPE_AUDIO_START_AT_SYNC
+        self.type_flags = TYPE_AUDIO_START_AT_SYNC | TYPE_AUDIO_QPSK
         self._image_files = []
 
     def next_image(self):
@@ -90,6 +91,34 @@ class Context:
             os.unlink(f)
         self._image_files = []
 
+    # pylint: disable=no-self-argument,no-else-return
+    def audio_symbols(ctx):
+        '''
+        Returns the number of audio symbols
+        '''
+        if ctx.type_flags & TYPE_AUDIO_QPSK:
+            return 8
+        else:
+            return 16
+
+    def audio_symbols_before_vsync(ctx):
+        '''
+        Returns the number of audio symbols before the video sync timing
+        '''
+        if ctx.type_flags & TYPE_AUDIO_START_AT_SYNC:
+            return 0
+        else:
+            return ctx.audio_symbols() // 2
+
+    def audio_symbols_after_vsync(ctx):
+        '''
+        Returns the number of audio symbols after the video sync timing
+        '''
+        if ctx.type_flags & TYPE_AUDIO_START_AT_SYNC:
+            return ctx.audio_symbols()
+        else:
+            return ctx.audio_symbols() // 2
+
 
 class Pattern:
     '''
@@ -114,14 +143,15 @@ class Pattern:
                 c = int(v)
             else:
                 raise ValueError(f'Invalid keyword {k} in {settings}')
+        n_sym1 = self.ctx.audio_symbols_after_vsync()
         if c <= 0:
-            c = q * f * self.ctx.vr[1] // (self.ctx.vr[0] * 8)
-        # Needs q / vr >= c / f / 8
+            c = q * f * self.ctx.vr[1] // (self.ctx.vr[0] * n_sym1)
+        # Needs q / vr >= c * n_sym1 / f
         if c <= 0:
-            min_f = _div_ceil(self.ctx.vr[0] * 8, q * self.ctx.vr[1])
+            min_f = _div_ceil(self.ctx.vr[0] * n_sym1, q * 2 * self.ctx.vr[1])
             raise ValueError(f'{settings}: Audio frequency is too slow, required at least {min_f}')
-        if q * f * self.ctx.vr[1] < c * 8 * self.ctx.vr[0]:
-            audio_duration = c * 16 / f
+        if q * 2 * f * self.ctx.vr[1] < c * n_sym1 * self.ctx.vr[0]:
+            audio_duration = c * self.ctx.audio_symbols() / f
             video_duration = q * 2 * self.ctx.vr[1] / self.ctx.vr[0]
             raise ValueError('Too short video; '
                              + f'video marker duration {video_duration} second, '
@@ -165,28 +195,52 @@ class Pattern:
         '''
         Returns audio frame in bytes
         '''
+        # pylint: disable=too-many-locals,too-many-branches
         f, c = self.f, self.c
         ctx = self.ctx
 
         data = 0xf000 | (self.i & 0xFF)
 
         n_center = ctx.ar * (self.q * 2) * ctx.vr[1] // ctx.vr[0]
-        n_pattern = 16 * c * ctx.ar // f
-        n_blank_begin = n_center
-        if (ctx.type_flags & TYPE_AUDIO_START_AT_SYNC) == 0:
-            n_blank_begin -= n_pattern // 2
-        i = 0
+        n_pattern = ctx.audio_symbols() * c * ctx.ar // f
+        n_blank_begin = n_center - ctx.audio_symbols_before_vsync() * c * ctx.ar // f
         if n_blank_begin < start_offset:
             raise ValueError(f'Too large start_offset; {start_offset}, expect <= {n_blank_begin}')
+        i = 0
         buffer = b'\x00\x00' * (n_blank_begin - start_offset)
+        sym_prev = -1
+        sym = -1
+        i_data_prev = -1
         while i < n_pattern:
             phase = i * 2 * math.pi * f / ctx.ar
-            sample = math.sin(phase)
             i_data = i * f // (ctx.ar * c)
-            if data & (0x8000 >> i_data):
-                sample = -sample
+            f_sym = (i * f % (ctx.ar * c)) / ctx.ar
+            if ctx.type_flags & TYPE_AUDIO_QPSK:
+                if i_data != i_data_prev:
+                    sym_prev = sym
+                    sym = (data >> (14 - i_data * 2)) & 3
+                    sym_next = (data >> (12 - i_data * 2)) & 3 if i_data < 7 else -1
+                if sym == 0:
+                    sample = math.sin(phase)
+                elif sym == 1:
+                    sample = math.cos(phase)
+                elif sym == 3:
+                    sample = -math.sin(phase)
+                elif sym == 2:
+                    sample = -math.cos(phase)
+                else:
+                    raise ValueError(f'sym={sym}')
+                if f_sym < 0.25 and sym != sym_prev:
+                    sample *= 0.5 - math.cos(f_sym * 4.0 * math.pi) * 0.5
+                elif c - f_sym < 0.25 and sym != sym_next:
+                    sample *= 0.5 - math.cos((c - f_sym) * 4.0 * math.pi) * 0.5
+            else:
+                sample = math.sin(phase)
+                if data & (0x8000 >> i_data):
+                    sample = -sample
             sample = round(sample * 32767 * ctx.amplitude)
             buffer += (sample & 0xFFFF).to_bytes(2, 'little')
+            i_data_prev = i_data
             i += 1
         self.i += 1
         return buffer
