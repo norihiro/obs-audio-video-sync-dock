@@ -37,6 +37,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define N_SYMBOL_BUFFER 16
 
 #define TYPE_AUDIO_START_AT_SYNC 1
+#define TYPE_AUDIO_QPSK 2
 
 struct st_video_buf
 {
@@ -486,21 +487,35 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 
 	float data_flt[8];
 	uint8_t index = 0;
-	for (int i = 0; i < 8; i++) {
-		auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
-		auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
-		auto x = int16_to_complex(s0 - s1);
-		auto r = (x / phase).real();
-		bool bit = r > 0.0f ? true : false;
-		if (bit)
-			index |= 1 << i;
-		data.score += std::abs(r);
-		data_flt[i] = r;
+	if (st->qr_data.type_flags & TYPE_AUDIO_QPSK) {
+		for (int i = 0; i < 4; i++) {
+			auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
+			auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
+			auto x = int16_to_complex(s0 - s1);
+			auto real = (x / phase).real();
+			auto imag = (x / phase).imag();
+			if (real > 0.0f)
+				index |= 1 << (i * 2);
+			if (imag > 0.0f)
+				index |= 2 << (i * 2);
+			data_flt[i * 2 + 0] = real;
+			data_flt[i * 2 + 1] = imag;
+		}
+	}
+	else {
+		for (int i = 0; i < 8; i++) {
+			auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
+			auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
+			auto x = int16_to_complex(s0 - s1);
+			auto r = (x / phase).real();
+			bool bit = r > 0.0f ? true : false;
+			if (bit)
+				index |= 1 << i;
+			data.score += std::abs(r);
+			data_flt[i] = r;
+		}
 	}
 
-	blog(LOG_INFO, "st_raw_audio_decode_data: Decoded %u rcv_ts=%.03f %f %f %f %f %f %f %f %f", index,
-	     (ts - st->start_ts) * 1e-9, data_flt[7], data_flt[6], data_flt[5], data_flt[4], data_flt[3], data_flt[2],
-	     data_flt[1], data_flt[0]);
 
 	uint8_t stack[64];
 	struct calldata cd;
@@ -515,10 +530,10 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 
 static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint64_t ts, float v0)
 {
-	uint32_t c = st->c_last;
 	uint32_t f = st->f_last;
-	uint64_t symbol_ns = util_mul_div64(c, 1000000000ULL, f);
-	size_t buffer_length = (size_t)(st->audio_sample_rate * c * N_SYMBOL_BUFFER / f);
+	uint32_t c1 = (st->qr_data.type_flags & TYPE_AUDIO_QPSK) ? st->c_last / 2 : st->c_last;
+	uint64_t symbol_ns = util_mul_div64(c1, 1000000000ULL, f);
+	size_t buffer_length = (size_t)(st->audio_sample_rate * c1 * N_SYMBOL_BUFFER / f);
 
 	/* Test the preamble pattern 0xF0  */
 	auto s0 = st->audio_buffer.sum(0);
@@ -528,7 +543,8 @@ static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint6
 	float det = std::abs(int16_to_complex(s4 - s0) - int16_to_complex(s8 - s4));
 
 	UNUSED_PARAMETER(v0);
-	// blog(LOG_INFO, "st_raw_audio-plot: %.05f %f %f", (ts - st->start_ts) * 1e-9, v0, det);
+	// auto dbg = int16_to_complex(st->audio_buffer.sum(1) - s0);
+	// blog(LOG_INFO, "st_raw_audio-plot: %.05f %f %f %f %f", (ts - st->start_ts) * 1e-9, v0, det, dbg.real(), dbg.imag());
 
 	if (st->audio_marker_finder.append(det, ts, symbol_ns * 8)) {
 		auto s8 = st->audio_buffer.sum(buffer_length * 8 / N_SYMBOL_BUFFER);
@@ -536,6 +552,9 @@ static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint6
 		auto s16 = st->audio_buffer.sum(buffer_length * 16 / N_SYMBOL_BUFFER);
 
 		auto x = int16_to_complex(s12 - s16) - int16_to_complex(s8 - s12);
+
+		if (st->qr_data.type_flags & TYPE_AUDIO_QPSK)
+			x *= std::complex(1.0f, -1.0f);
 
 		if (st->qr_data.type_flags & TYPE_AUDIO_START_AT_SYNC)
 			ts -= symbol_ns * N_AUDIO_SYMBOLS;
