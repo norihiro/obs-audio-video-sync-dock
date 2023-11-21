@@ -10,13 +10,15 @@ struct peak_finder
 	float cand_score = 0.0f;
 	float last_score = 0.0f;
 
-	static float dumping(uint64_t ts_last, uint64_t ts_next)
+	uint64_t dumping_range = 2000000000;
+
+	float dumping(uint64_t ts_last, uint64_t ts_next) const
 	{
 		if (ts_next <= ts_last)
 			return 1.0f;
-		if (ts_next - ts_last > 2000000000)
+		if (ts_next - ts_last > dumping_range)
 			return 0.0f;
-		float f = (ts_next - ts_last) * 0.5e-9f;
+		float f = (float)(ts_next - ts_last) / dumping_range;
 		return 1.0f - f * f;
 	}
 

@@ -6,6 +6,7 @@ struct st_qr_data
 {
 	uint32_t f = 0;
 	uint32_t c = 0;
+	uint32_t q_ms = 0;
 	uint32_t index = -1;
 	uint32_t type_flags = 0;
 	bool valid = 0;
@@ -27,6 +28,9 @@ struct st_qr_data
 			return true;
 		case 'c':
 			c = (uint32_t)atoi(val);
+			return true;
+		case 'q':
+			q_ms = (uint32_t)atoi(val);
 			return true;
 		case 'i':
 			index = (uint32_t)atoi(val);
@@ -50,6 +54,10 @@ struct st_qr_data
 		}
 		if (c < 1 || f < c) {
 			blog(LOG_WARNING, "c: out of range: %u", c);
+			return false;
+		}
+		if (q_ms < 1 || 1000 < q_ms) {
+			blog(LOG_WARNING, "q: out of range: %u", q_ms);
 			return false;
 		}
 		if (index & ~0xFF) {

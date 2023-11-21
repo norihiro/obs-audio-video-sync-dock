@@ -130,6 +130,7 @@ struct sync_test_output
 	/* Audio pattern information from video to audio */
 	uint32_t f = 0;
 	uint32_t c = 0;
+	uint32_t q_ms = 0;
 
 	uint32_t f_last = 0;
 	uint32_t c_last = 0;
@@ -316,7 +317,11 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 			std::unique_lock<std::mutex> lock(st->mutex);
 			st->f = st->qr_data.f;
 			st->c = st->qr_data.c;
+			st->q_ms = st->qr_data.q_ms;
 		}
+
+		if (st->qr_data.q_ms > 0)
+			st->video_marker_finder.dumping_range = st->qr_data.q_ms * 1000000 * 6;
 	}
 }
 
@@ -551,6 +556,7 @@ static void st_raw_audio(void *data, struct audio_data *frames)
 	std::unique_lock<std::mutex> lock(st->mutex);
 	uint32_t f = st->f;
 	uint32_t c = st->c;
+	uint32_t q_ms = st->q_ms;
 	lock.unlock();
 
 	if (f <= 0 || c <= 0)
@@ -561,6 +567,9 @@ static void st_raw_audio(void *data, struct audio_data *frames)
 		st->c_last = c;
 		st->audio_buffer.buffer.clear();
 	}
+
+	if (q_ms > 0)
+		st->audio_marker_finder.dumping_range = q_ms * 1000000 * 6 * 2;
 
 	float phase = (frames->timestamp % 1000000000) * (float)(1e-9 * 2 * M_PI * f);
 	float phase_step = (float)(2 * M_PI * f) / st->audio_sample_rate;
