@@ -50,13 +50,16 @@ class Context:
         self._img_index = 0
         self._sync_image_cache = {}
         self.type_flags = TYPE_AUDIO_START_AT_SYNC
+        self._image_files = []
 
     def next_image(self):
         '''
         Returns a file name for the next temporarily image file.
         '''
         self._img_index += 1
-        return f'{self.workdir}/image-{self._img_index:04d}.png'
+        f = f'{self.workdir}/image-{self._img_index:04d}.png'
+        self._image_files.append(f)
+        return f
 
     def sync_image(self, ix):
         '''
@@ -78,6 +81,14 @@ class Context:
         base_img.save(name)
         self._sync_image_cache[ix] = name
         return name
+
+    def remove_image_files(self):
+        '''
+        Remove all image files returned by `next_image()`
+        '''
+        for f in self._image_files:
+            os.unlink(f)
+        self._image_files = []
 
 
 class Pattern:
@@ -280,6 +291,7 @@ class VideoGen:
         else:
             ffmpeg_cmd += ['-framerate', '%d/%d'%ctx.vr]
         ffmpeg_cmd += ['-i', i0_fmt]
+        ffmpeg_cmd += ['-channel_layout', 'mono']
         ffmpeg_cmd += ['-f', 's16le', '-ac', '1', '-ar', '%d'%ctx.ar, '-i', i1_name]
         ffmpeg_cmd += ['-pix_fmt', 'yuv420p']
         ffmpeg_cmd += ['-b:a', '192k']
@@ -323,6 +335,7 @@ def _main():
     gen.prepare()
     if not args.dryrun:
         gen.output(args.output, duration=int(args.duration), max_duration=int(args.max_duration))
+    ctx.remove_image_files()
 
 
 if __name__ == '__main__':
