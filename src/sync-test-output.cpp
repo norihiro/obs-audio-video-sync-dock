@@ -30,7 +30,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "plugin-macros.generated.h"
 
-#define N_VIDEO_BUF 4
 #define N_CORNERS 4
 
 #define N_AUDIO_SYMBOLS 16
@@ -38,12 +37,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #define TYPE_AUDIO_START_AT_SYNC 1
 #define TYPE_AUDIO_QPSK 2
-
-struct st_video_buf
-{
-	float sum;
-	uint64_t timestamp;
-};
 
 struct st_audio_buffer
 {
@@ -115,9 +108,9 @@ struct sync_test_output
 	struct corner_type qr_corners[N_CORNERS];
 	st_qr_data qr_data;
 
-	struct st_video_buf video_buf[N_VIDEO_BUF];
-	uint32_t video_buf_start = 0, video_buf_end = 0, video_buf_size = 0;
-	struct peak_finder video_marker_finder;
+	int64_t video_level_prev = 0;
+	uint64_t video_level_prev_ts = 0;
+	uint64_t video_marker_max_ts = 0;
 
 	/* Sync pattern detection from audio */
 	struct st_audio_buffer audio_buffer;
@@ -142,6 +135,8 @@ struct sync_test_output
 			quirc_destroy(qr);
 	}
 };
+
+static void video_marker_found(struct sync_test_output *st, uint64_t timestamp, float score);
 
 static const char *st_get_name(void *)
 {
@@ -321,14 +316,19 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 			st->q_ms = st->qr_data.q_ms;
 		}
 
-		if (st->qr_data.q_ms > 0)
-			st->video_marker_finder.dumping_range = st->qr_data.q_ms * 1000000 * 6;
+		st->video_marker_max_ts = frame->timestamp + st->qr_data.q_ms * 3 * 1000000;
+		st->video_level_prev = 0;
 	}
 }
 
-static void st_raw_video_insert_to_video_buf(struct sync_test_output *st, struct video_data *frame)
+static void st_raw_video_find_marker(struct sync_test_output *st, struct video_data *frame)
 {
 	int64_t sum = 0;
+
+	if (frame->timestamp > st->video_marker_max_ts) {
+		st->video_level_prev = 0;
+		return;
+	}
 
 	const uint8_t *linedata = frame->data[0];
 
@@ -358,15 +358,15 @@ static void st_raw_video_insert_to_video_buf(struct sync_test_output *st, struct
 		}
 	}
 
-	st->video_buf[st->video_buf_end].sum = sum / (127.5f * st->video_width * st->video_height);
-	st->video_buf[st->video_buf_end].timestamp = frame->timestamp;
-	if (st->video_buf_size < N_VIDEO_BUF) {
-		st->video_buf_end = (st->video_buf_end + 1) % N_VIDEO_BUF;
-		st->video_buf_size++;
+	// blog(LOG_INFO, "st_raw_video-plot: %.03f %f", (frame->timestamp - st->start_ts) * 1e-9, (double)sum);
+
+	if (st->qr_data.valid && st->video_level_prev < 0 && sum > 0) {
+		uint64_t t = frame->timestamp - st->video_level_prev_ts;
+		uint64_t add = util_mul_div64(t, sum - st->video_level_prev * 3, (sum - st->video_level_prev) * 2);
+		video_marker_found(st, st->video_level_prev_ts + add, (float)(sum - st->video_level_prev));
 	}
-	else {
-		st->video_buf_start = st->video_buf_end = (st->video_buf_start + 1) % N_VIDEO_BUF;
-	}
+	st->video_level_prev = sum;
+	st->video_level_prev_ts = frame->timestamp;
 }
 
 static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts, bool is_video)
@@ -416,48 +416,23 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 	(is_video ? ref.video_ts : ref.audio_ts) = ts;
 }
 
-static void st_raw_video_search_marker(struct sync_test_output *st)
+static void video_marker_found(struct sync_test_output *st, uint64_t timestamp, float score)
 {
-	if (st->video_buf_size != N_VIDEO_BUF)
-		return;
+	uint8_t stack[64];
+	struct calldata cd;
+	calldata_init_fixed(&cd, stack, sizeof(stack));
+	auto *sh = obs_output_get_signal_handler(st->context);
 
-	if (!st->qr_data.valid)
-		return;
+	struct video_marker_found_s data;
+	data.timestamp = timestamp - st->start_ts;
+	data.score = score;
+	data.qr_data = st->qr_data;
+	data.qr_data.index = st->qr_data.index;
 
-	uint64_t timestamp = 0;
-	float score = 0;
+	calldata_set_ptr(&cd, "data", &data);
+	signal_handler_signal(sh, "video_marker_found", &cd);
 
-	for (size_t i = 0; i < N_VIDEO_BUF; i++) {
-		if (i == N_VIDEO_BUF / 2) {
-			timestamp = st->video_buf[(i + st->video_buf_start) % N_VIDEO_BUF].timestamp;
-		}
-		float v = st->video_buf[(i + st->video_buf_start) % N_VIDEO_BUF].sum;
-		score += i < N_VIDEO_BUF / 2 ? -v : v;
-	}
-
-	// blog(LOG_INFO, "st_raw_video-plot: %.03f %f", (timestamp - st->start_ts) * 1e-9, score);
-
-	if (st->video_marker_finder.append(
-		    score, timestamp,
-		    st->video_buf[(st->video_buf_start + N_VIDEO_BUF - 1) / N_VIDEO_BUF].timestamp -
-			    st->video_buf[st->video_buf_start].timestamp)) {
-		uint8_t stack[64];
-		struct calldata cd;
-		calldata_init_fixed(&cd, stack, sizeof(stack));
-		auto *sh = obs_output_get_signal_handler(st->context);
-
-		struct video_marker_found_s data;
-		data.timestamp = st->video_marker_finder.last_ts - st->start_ts;
-		data.score = st->video_marker_finder.last_score;
-		data.qr_data = st->qr_data;
-
-		calldata_set_ptr(&cd, "data", &data);
-		signal_handler_signal(sh, "video_marker_found", &cd);
-
-		sync_index_found(st, st->qr_data.index, st->video_marker_finder.last_ts - st->start_ts, true);
-
-		st->qr_data.valid = false;
-	}
+	sync_index_found(st, data.qr_data.index, data.timestamp, true);
 }
 
 static void st_raw_video(void *data, struct video_data *frame)
@@ -471,8 +446,7 @@ static void st_raw_video(void *data, struct video_data *frame)
 		st->start_ts = frame->timestamp;
 
 	st_raw_video_qrcode_decode(st, frame);
-	st_raw_video_insert_to_video_buf(st, frame);
-	st_raw_video_search_marker(st);
+	st_raw_video_find_marker(st, frame);
 }
 
 static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::complex<float> phase, uint64_t ts)
