@@ -85,6 +85,7 @@ if(OS_WINDOWS)
 	if (MSVC)
 		add_definitions(/MP /d2FH4-)
 		add_definitions("-D_USE_MATH_DEFINES") # for M_PI
+		add_definitions("-Dstrtok_r=strtok_s")
 	endif()
 
 	target_link_libraries(${CMAKE_PROJECT_NAME} OBS::w32-pthreads)
