@@ -48,6 +48,8 @@ class Context:
         self.width = 1280
         self.height = 720
         self.amplitude = 0.8
+        self.audio_rectangle = False
+        self.audio_continuous = 0.25
         self._img_index = 0
         self._sync_image_cache = {}
         self.type_flags = TYPE_AUDIO_START_AT_SYNC | TYPE_AUDIO_QPSK
@@ -230,16 +232,24 @@ class Pattern:
                     sample = -math.cos(phase)
                 else:
                     raise ValueError(f'sym={sym}')
-                if f_sym < 0.25 and sym != sym_prev:
-                    sample *= 0.5 - math.cos(f_sym * 4.0 * math.pi) * 0.5
-                elif c - f_sym < 0.25 and sym != sym_next:
-                    sample *= 0.5 - math.cos((c - f_sym) * 4.0 * math.pi) * 0.5
             else:
+                if i_data != i_data_prev:
+                    sym_prev = sym
+                    sym = (data >> (15 - i_data)) & 1
+                    sym_next = (data >> (14 - i_data)) & 1 if i_data < 15 else -1
                 sample = math.sin(phase)
-                if data & (0x8000 >> i_data):
+                if sym:
                     sample = -sample
-            sample = round(sample * 32767 * ctx.amplitude)
-            buffer += (sample & 0xFFFF).to_bytes(2, 'little')
+
+            if ctx.audio_rectangle:
+                sample = 1.0 if sample > 0.0 else -1.0
+            else:
+                if f_sym < ctx.audio_continuous and sym != sym_prev:
+                    sample *= 0.5 - math.cos(f_sym / ctx.audio_continuous * math.pi) * 0.5
+                elif c - f_sym < ctx.audio_continuous and sym != sym_next:
+                    sample *= 0.5 - math.cos((c - f_sym) / ctx.audio_continuous * math.pi) * 0.5
+
+            buffer += (round(sample * 32767 * ctx.amplitude) & 0xFFFF).to_bytes(2, 'little')
             i_data_prev = i_data
             i += 1
         self.i += 1
@@ -377,11 +387,21 @@ def _main():
     parser.add_argument('--duration', action='store', default='0',
                         help='Duration of the video, 0 for auto-calculation')
     parser.add_argument('--max-duration', action='store', default='600', help='Maximum duration')
+    parser.add_argument('--rectangle', action='store_true', default=False,
+                        help='Generate rectangle audio')
+    parser.add_argument('--smooth', action='store', type=float, default=0.25,
+                        help='Symbol length to make the audio smooth')
+    parser.add_argument('--bpsk', action='store_true', default=False,
+                        help='Generate BPSK encoded audio')
     parser.add_argument('-o', '--output', action='store', default='output.mp4',
                         help='Output file name')
     parser.add_argument('patterns', nargs='+', help='Pattern definition of synchronization marker')
     args = parser.parse_args()
     ctx = Context(args.workdir, args.vr, args.ar)
+    ctx.audio_rectangle = args.rectangle
+    ctx.audio_continuous = args.smooth
+    if args.bpsk:
+        ctx.type_flags &= ~TYPE_AUDIO_QPSK
     gen = VideoGen(ctx)
     for p in args.patterns:
         p = Pattern(ctx, p)
