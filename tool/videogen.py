@@ -20,6 +20,23 @@ def _div_ceil(n, m):
     return (n + m - 1) // m
 
 
+def crc4(data, size):
+    '''
+    Calculates CRC-4-ITU
+    Argument:
+    - data -- int type data to calculate the CRC
+    - size -- number of bits
+    '''
+    data <<= 4
+    p = 0x13 << (size - 1)
+    while size > 0:
+        if data & (0x8 << size):
+            data ^= p
+        size -= 1
+        p >>= 1
+    return data
+
+
 class Context:
     '''
     Holds context information
@@ -94,14 +111,17 @@ class Context:
         self._image_files = []
 
     # pylint: disable=no-self-argument,no-else-return
+    def _audio_bits_to_symbols(ctx, n_bits):
+        if ctx.type_flags & TYPE_AUDIO_QPSK:
+            n_bits = n_bits // 2
+        return n_bits
+
     def audio_symbols(ctx):
         '''
         Returns the number of audio symbols
         '''
-        if ctx.type_flags & TYPE_AUDIO_QPSK:
-            return 8
-        else:
-            return 16
+        n_bits = 20
+        return ctx._audio_bits_to_symbols(n_bits)
 
     def audio_symbols_before_vsync(ctx):
         '''
@@ -110,16 +130,15 @@ class Context:
         if ctx.type_flags & TYPE_AUDIO_START_AT_SYNC:
             return 0
         else:
-            return ctx.audio_symbols() // 2
+            return ctx._audio_bits_to_symbols(8)
 
     def audio_symbols_after_vsync(ctx):
         '''
         Returns the number of audio symbols after the video sync timing
         '''
-        if ctx.type_flags & TYPE_AUDIO_START_AT_SYNC:
-            return ctx.audio_symbols()
-        else:
-            return ctx.audio_symbols() // 2
+        n = ctx.audio_symbols()
+        n -= ctx.audio_symbols_before_vsync()
+        return n
 
 
 class Pattern:
@@ -197,11 +216,14 @@ class Pattern:
         '''
         Returns audio frame in bytes
         '''
-        # pylint: disable=too-many-locals,too-many-branches
+        # pylint: disable=too-many-locals,too-many-branches,too-many-statements
         f, c = self.f, self.c
         ctx = self.ctx
 
         data = 0xf000 | (self.i & 0xFF)
+        n_bit = 16
+        data = data << 4 | crc4(data, n_bit)
+        n_bit += 4
 
         n_center = ctx.ar * (self.q * 2) * ctx.vr[1] // ctx.vr[0]
         n_pattern = ctx.audio_symbols() * c * ctx.ar // f
@@ -215,13 +237,13 @@ class Pattern:
         i_data_prev = -1
         while i < n_pattern:
             phase = i * 2 * math.pi * f / ctx.ar
-            i_data = i * f // (ctx.ar * c)
             f_sym = (i * f % (ctx.ar * c)) / ctx.ar
             if ctx.type_flags & TYPE_AUDIO_QPSK:
+                i_data = n_bit - (i * f // (ctx.ar * c)) * 2 - 2
                 if i_data != i_data_prev:
                     sym_prev = sym
-                    sym = (data >> (14 - i_data * 2)) & 3
-                    sym_next = (data >> (12 - i_data * 2)) & 3 if i_data < 7 else -1
+                    sym = (data >> i_data) & 3
+                    sym_next = (data >> (i_data - 2)) & 3 if i_data >= 2 else -1
                 if sym == 0:
                     sample = math.sin(phase)
                 elif sym == 1:
@@ -233,10 +255,11 @@ class Pattern:
                 else:
                     raise ValueError(f'sym={sym}')
             else:
+                i_data = n_bit - (i * f // (ctx.ar * c)) - 1
                 if i_data != i_data_prev:
                     sym_prev = sym
-                    sym = (data >> (15 - i_data)) & 1
-                    sym_next = (data >> (14 - i_data)) & 1 if i_data < 15 else -1
+                    sym = (data >> i_data) & 1
+                    sym_next = (data >> (i_data - 1)) & 1 if i_data >= 1 else -1
                 sample = math.sin(phase)
                 if sym:
                     sample = -sample
