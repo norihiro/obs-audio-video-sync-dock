@@ -33,7 +33,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define N_CORNERS 4
 
 #define N_AUDIO_SYMBOLS 16
-#define N_SYMBOL_BUFFER 16
+#define N_SYMBOL_BUFFER 20
 
 #define TYPE_AUDIO_START_AT_SYNC 1
 #define TYPE_AUDIO_QPSK 2
@@ -449,6 +449,18 @@ static void st_raw_video(void *data, struct video_data *frame)
 	st_raw_video_find_marker(st, frame);
 }
 
+static uint32_t crc4_check(uint32_t data, uint32_t size)
+{
+	uint32_t p = 0x13 << (size - 5);
+	while (size > 4) {
+		if (data & (1 << (size - 1)))
+			data ^= p;
+		size--;
+		p >>= 1;
+	}
+	return data;
+}
+
 static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::complex<float> phase, uint64_t ts)
 {
 	uint32_t symbol_num = st->audio_sample_rate * st->c_last;
@@ -459,25 +471,25 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	data.index = st->qr_data.index;
 	data.score = 0.0f;
 
-	float data_flt[8];
-	uint8_t index = 0;
+	float data_flt[12];
+	uint16_t index = 0;
 	if (st->qr_data.type_flags & TYPE_AUDIO_QPSK) {
-		for (int i = 0; i < 4; i++) {
-			auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
-			auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
+		for (int i = 0; i < 12; i += 2) {
+			auto s0 = st->audio_buffer.sum(symbol_num * i / 2 / symbol_den);
+			auto s1 = st->audio_buffer.sum(symbol_num * (i / 2 + 1) / symbol_den);
 			auto x = int16_to_complex(s0 - s1);
 			auto real = (x / phase).real();
 			auto imag = (x / phase).imag();
 			if (real > 0.0f)
-				index |= 1 << (i * 2);
+				index |= 1 << i;
 			if (imag > 0.0f)
-				index |= 2 << (i * 2);
-			data_flt[i * 2 + 0] = real;
-			data_flt[i * 2 + 1] = imag;
+				index |= 2 << i;
+			data_flt[i + 0] = real;
+			data_flt[i + 1] = imag;
 		}
 	}
 	else {
-		for (int i = 0; i < 8; i++) {
+		for (int i = 0; i < 12; i++) {
 			auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
 			auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
 			auto x = int16_to_complex(s0 - s1);
@@ -490,6 +502,12 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 		}
 	}
 
+	auto crc4 = crc4_check(0xF0000 | index, 20);
+
+	if (crc4 != 0) {
+		blog(LOG_DEBUG, "st_raw_audio_decode_data: CRC mismatch: received data=0x%03X index=%d crc=0x%X", index, index >> 4, crc4);
+		return;
+	}
 
 	uint8_t stack[64];
 	struct calldata cd;
@@ -499,7 +517,7 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	calldata_set_ptr(&cd, "data", &data);
 	signal_handler_signal(sh, "audio_marker_found", &cd);
 
-	sync_index_found(st, index, ts - st->start_ts, false);
+	sync_index_found(st, index >> 4, ts - st->start_ts, false);
 }
 
 static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint64_t ts, float v0)
@@ -520,20 +538,20 @@ static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint6
 	// auto dbg = int16_to_complex(st->audio_buffer.sum(1) - s0);
 	// blog(LOG_INFO, "st_raw_audio-plot: %.05f %f %f %f %f", (ts - st->start_ts) * 1e-9, v0, det, dbg.real(), dbg.imag());
 
-	if (st->audio_marker_finder.append(det, ts, symbol_ns * 8)) {
-		auto s8 = st->audio_buffer.sum(buffer_length * 8 / N_SYMBOL_BUFFER);
+	if (st->audio_marker_finder.append(det, ts, symbol_ns * 12)) {
 		auto s12 = st->audio_buffer.sum(buffer_length * 12 / N_SYMBOL_BUFFER);
 		auto s16 = st->audio_buffer.sum(buffer_length * 16 / N_SYMBOL_BUFFER);
+		auto s20 = st->audio_buffer.sum(buffer_length * 20 / N_SYMBOL_BUFFER);
 
-		auto x = int16_to_complex(s12 - s16) - int16_to_complex(s8 - s12);
+		auto x = int16_to_complex(s16 - s20) - int16_to_complex(s12 - s16);
 
 		if (st->qr_data.type_flags & TYPE_AUDIO_QPSK)
 			x *= std::complex(1.0f, -1.0f);
 
 		if (st->qr_data.type_flags & TYPE_AUDIO_START_AT_SYNC)
-			ts -= symbol_ns * N_AUDIO_SYMBOLS;
+			ts = st->audio_marker_finder.last_ts - symbol_ns * N_AUDIO_SYMBOLS / 2;
 		else
-			ts -= symbol_ns * (N_AUDIO_SYMBOLS / 2);
+			ts = st->audio_marker_finder.last_ts;
 
 		st_raw_audio_decode_data(st, x / std::abs(x), ts);
 	}
