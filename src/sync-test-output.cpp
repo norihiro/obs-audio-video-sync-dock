@@ -531,8 +531,11 @@ static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint6
 	auto s0 = st->audio_buffer.sum(0);
 	auto s4 = st->audio_buffer.sum(buffer_length * 4 / N_SYMBOL_BUFFER);
 	auto s8 = st->audio_buffer.sum(buffer_length * 8 / N_SYMBOL_BUFFER);
+	auto s12 = st->audio_buffer.sum(buffer_length * 12 / N_SYMBOL_BUFFER);
 
-	float det = std::abs(int16_to_complex(s4 - s0) - int16_to_complex(s8 - s4));
+	float det8_0 = std::abs(int16_to_complex(s4 - s0) - int16_to_complex(s8 - s4));
+	float det12_8 = det8_0 * 0.5f - std::abs(int16_to_complex(s12 - s8));
+	float det = det8_0 + det12_8;
 
 	UNUSED_PARAMETER(v0);
 	// auto dbg = int16_to_complex(st->audio_buffer.sum(1) - s0);
