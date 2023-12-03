@@ -13,7 +13,6 @@ import qrcode
 
 
 TYPE_AUDIO_START_AT_SYNC = 1
-TYPE_AUDIO_QPSK = 2
 
 
 def _div_ceil(n, m):
@@ -69,7 +68,7 @@ class Context:
         self.audio_continuous = 0.25
         self._img_index = 0
         self._sync_image_cache = {}
-        self.type_flags = TYPE_AUDIO_START_AT_SYNC | TYPE_AUDIO_QPSK
+        self.type_flags = TYPE_AUDIO_START_AT_SYNC
         self._image_files = []
 
     def next_image(self):
@@ -112,9 +111,7 @@ class Context:
 
     # pylint: disable=no-self-argument,no-else-return
     def _audio_bits_to_symbols(ctx, n_bits):
-        if ctx.type_flags & TYPE_AUDIO_QPSK:
-            n_bits = n_bits // 2
-        return n_bits
+        return n_bits // 2
 
     def audio_symbols(ctx):
         '''
@@ -238,31 +235,21 @@ class Pattern:
         while i < n_pattern:
             phase = i * 2 * math.pi * f / ctx.ar
             f_sym = (i * f % (ctx.ar * c)) / ctx.ar
-            if ctx.type_flags & TYPE_AUDIO_QPSK:
-                i_data = n_bit - (i * f // (ctx.ar * c)) * 2 - 2
-                if i_data != i_data_prev:
-                    sym_prev = sym
-                    sym = (data >> i_data) & 3
-                    sym_next = (data >> (i_data - 2)) & 3 if i_data >= 2 else -1
-                if sym == 0:
-                    sample = math.sin(phase)
-                elif sym == 1:
-                    sample = math.cos(phase)
-                elif sym == 3:
-                    sample = -math.sin(phase)
-                elif sym == 2:
-                    sample = -math.cos(phase)
-                else:
-                    raise ValueError(f'sym={sym}')
-            else:
-                i_data = n_bit - (i * f // (ctx.ar * c)) - 1
-                if i_data != i_data_prev:
-                    sym_prev = sym
-                    sym = (data >> i_data) & 1
-                    sym_next = (data >> (i_data - 1)) & 1 if i_data >= 1 else -1
+            i_data = n_bit - (i * f // (ctx.ar * c)) * 2 - 2
+            if i_data != i_data_prev:
+                sym_prev = sym
+                sym = (data >> i_data) & 3
+                sym_next = (data >> (i_data - 2)) & 3 if i_data >= 2 else -1
+            if sym == 0:
                 sample = math.sin(phase)
-                if sym:
-                    sample = -sample
+            elif sym == 1:
+                sample = math.cos(phase)
+            elif sym == 3:
+                sample = -math.sin(phase)
+            elif sym == 2:
+                sample = -math.cos(phase)
+            else:
+                raise ValueError(f'sym={sym}')
 
             if ctx.audio_rectangle:
                 sample = 1.0 if sample > 0.0 else -1.0
@@ -414,8 +401,6 @@ def _main():
                         help='Generate rectangle audio')
     parser.add_argument('--smooth', action='store', type=float, default=0.25,
                         help='Symbol length to make the audio smooth')
-    parser.add_argument('--bpsk', action='store_true', default=False,
-                        help='Generate BPSK encoded audio')
     parser.add_argument('-o', '--output', action='store', default='output.mp4',
                         help='Output file name')
     parser.add_argument('patterns', nargs='+', help='Pattern definition of synchronization marker')
@@ -423,8 +408,6 @@ def _main():
     ctx = Context(args.workdir, args.vr, args.ar)
     ctx.audio_rectangle = args.rectangle
     ctx.audio_continuous = args.smooth
-    if args.bpsk:
-        ctx.type_flags &= ~TYPE_AUDIO_QPSK
     gen = VideoGen(ctx)
     for p in args.patterns:
         p = Pattern(ctx, p)
