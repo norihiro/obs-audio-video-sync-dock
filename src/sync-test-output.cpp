@@ -35,8 +35,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define N_AUDIO_SYMBOLS 16
 #define N_SYMBOL_BUFFER 20
 
-#define TYPE_AUDIO_START_AT_SYNC 1
-
 struct st_audio_buffer
 {
 	std::deque<std::pair<int32_t, int32_t>> buffer;
@@ -533,10 +531,7 @@ static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint6
 		auto x = int16_to_complex(s16 - s20) - int16_to_complex(s12 - s16);
 		x *= std::complex(1.0f, -1.0f);
 
-		if (st->qr_data.type_flags & TYPE_AUDIO_START_AT_SYNC)
-			ts = st->audio_marker_finder.last_ts - symbol_ns * N_AUDIO_SYMBOLS / 2;
-		else
-			ts = st->audio_marker_finder.last_ts;
+		ts = st->audio_marker_finder.last_ts - symbol_ns * N_AUDIO_SYMBOLS / 2;
 
 		st_raw_audio_decode_data(st, x / std::abs(x), ts);
 	}
