@@ -12,9 +12,6 @@ from PIL import Image
 import qrcode
 
 
-TYPE_AUDIO_START_AT_SYNC = 1
-
-
 def _div_ceil(n, m):
     return (n + m - 1) // m
 
@@ -68,7 +65,7 @@ class Context:
         self.audio_continuous = 0.25
         self._img_index = 0
         self._sync_image_cache = {}
-        self.type_flags = TYPE_AUDIO_START_AT_SYNC
+        self.type_flags = 0
         self._image_files = []
 
     def next_image(self):
@@ -124,10 +121,7 @@ class Context:
         '''
         Returns the number of audio symbols before the video sync timing
         '''
-        if ctx.type_flags & TYPE_AUDIO_START_AT_SYNC:
-            return 0
-        else:
-            return ctx._audio_bits_to_symbols(8)
+        return 0
 
     def audio_symbols_after_vsync(ctx):
         '''
