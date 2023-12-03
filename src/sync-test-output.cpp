@@ -36,7 +36,6 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define N_SYMBOL_BUFFER 20
 
 #define TYPE_AUDIO_START_AT_SYNC 1
-#define TYPE_AUDIO_QPSK 2
 
 struct st_audio_buffer
 {
@@ -473,33 +472,18 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 
 	float data_flt[12];
 	uint16_t index = 0;
-	if (st->qr_data.type_flags & TYPE_AUDIO_QPSK) {
-		for (int i = 0; i < 12; i += 2) {
-			auto s0 = st->audio_buffer.sum(symbol_num * i / 2 / symbol_den);
-			auto s1 = st->audio_buffer.sum(symbol_num * (i / 2 + 1) / symbol_den);
-			auto x = int16_to_complex(s0 - s1);
-			auto real = (x / phase).real();
-			auto imag = (x / phase).imag();
-			if (real > 0.0f)
-				index |= 1 << i;
-			if (imag > 0.0f)
-				index |= 2 << i;
-			data_flt[i + 0] = real;
-			data_flt[i + 1] = imag;
-		}
-	}
-	else {
-		for (int i = 0; i < 12; i++) {
-			auto s0 = st->audio_buffer.sum(symbol_num * i / symbol_den);
-			auto s1 = st->audio_buffer.sum(symbol_num * (i + 1) / symbol_den);
-			auto x = int16_to_complex(s0 - s1);
-			auto r = (x / phase).real();
-			bool bit = r > 0.0f ? true : false;
-			if (bit)
-				index |= 1 << i;
-			data.score += std::abs(r);
-			data_flt[i] = r;
-		}
+	for (int i = 0; i < 12; i += 2) {
+		auto s0 = st->audio_buffer.sum(symbol_num * i / 2 / symbol_den);
+		auto s1 = st->audio_buffer.sum(symbol_num * (i / 2 + 1) / symbol_den);
+		auto x = int16_to_complex(s0 - s1);
+		auto real = (x / phase).real();
+		auto imag = (x / phase).imag();
+		if (real > 0.0f)
+			index |= 1 << i;
+		if (imag > 0.0f)
+			index |= 2 << i;
+		data_flt[i + 0] = real;
+		data_flt[i + 1] = imag;
 	}
 
 	auto crc4 = crc4_check(0xF0000 | index, 20);
@@ -523,7 +507,7 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint64_t ts, float v0)
 {
 	uint32_t f = st->f_last;
-	uint32_t c1 = (st->qr_data.type_flags & TYPE_AUDIO_QPSK) ? st->c_last / 2 : st->c_last;
+	uint32_t c1 = st->c_last / 2;
 	uint64_t symbol_ns = util_mul_div64(c1, 1000000000ULL, f);
 	size_t buffer_length = (size_t)(st->audio_sample_rate * c1 * N_SYMBOL_BUFFER / f);
 
@@ -547,9 +531,7 @@ static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint6
 		auto s20 = st->audio_buffer.sum(buffer_length * 20 / N_SYMBOL_BUFFER);
 
 		auto x = int16_to_complex(s16 - s20) - int16_to_complex(s12 - s16);
-
-		if (st->qr_data.type_flags & TYPE_AUDIO_QPSK)
-			x *= std::complex(1.0f, -1.0f);
+		x *= std::complex(1.0f, -1.0f);
 
 		if (st->qr_data.type_flags & TYPE_AUDIO_START_AT_SYNC)
 			ts = st->audio_marker_finder.last_ts - symbol_ns * N_AUDIO_SYMBOLS / 2;
