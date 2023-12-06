@@ -487,7 +487,7 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	auto crc4 = crc4_check(0xF0000 | index, 20);
 
 	if (crc4 != 0) {
-		blog(LOG_DEBUG, "st_raw_audio_decode_data: CRC mismatch: received data=0x%03X index=%d crc=0x%X", index, index >> 4, crc4);
+		blog(LOG_DEBUG, "st_raw_audio_decode_data: CRC mismatch: received data=0x%03X crc=0x%X", index, crc4);
 		return;
 	}
 
@@ -587,7 +587,7 @@ static void st_raw_audio(void *data, struct audio_data *frames)
 extern "C" void register_sync_test_output()
 {
 	struct obs_output_info info = {};
-	info.id = ID_PREFIX "output";
+	info.id = OUTPUT_ID;
 	info.flags = OBS_OUTPUT_AV;
 	info.get_name = st_get_name;
 	info.create = st_create;

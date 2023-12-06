@@ -23,6 +23,8 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "plugin-macros.generated.h"
 
+#define QR_RECT_COLOR 0xFF00FF00
+
 struct st_monitor_s
 {
 	obs_weak_output_t *weak;
@@ -42,7 +44,7 @@ static bool find_output_cb(void *data, obs_output_t *o)
 {
 	obs_output_t **res = data;
 	const char *id = obs_output_get_id(o);
-	if (strcmp(id, ID_PREFIX "output") == 0) {
+	if (id && strcmp(id, OUTPUT_ID) == 0) {
 		*res = o;
 		return false;
 	}
@@ -137,28 +139,25 @@ static void destroy(void *data)
 	bfree(s);
 }
 
-static uint32_t get_width(void *data)
+static inline uint32_t get_width_height(struct st_monitor_s *s, uint32_t (*func)(const obs_output_t *))
 {
-	struct st_monitor_s *s = data;
 	uint32_t ret = 0;
 	obs_output_t *o = obs_weak_output_get_output(s->weak);
 	if (o) {
-		ret = obs_output_get_width(o);
+		ret = func(o);
 		obs_output_release(o);
 	}
 	return ret;
 }
 
+static uint32_t get_width(void *data)
+{
+	return get_width_height(data, obs_output_get_width);
+}
+
 static uint32_t get_height(void *data)
 {
-	struct st_monitor_s *s = data;
-	uint32_t ret = 0;
-	obs_output_t *o = obs_weak_output_get_output(s->weak);
-	if (o) {
-		ret = obs_output_get_height(o);
-		obs_output_release(o);
-	}
-	return ret;
+	return get_width_height(data, obs_output_get_height);
 }
 
 static void video_tick(void *data, float seconds)
@@ -193,7 +192,7 @@ static void video_render(void *data, gs_effect_t *effect)
 		pthread_mutex_unlock(&s->mutex);
 
 		gs_effect_t *e = obs_get_base_effect(OBS_EFFECT_SOLID);
-		gs_effect_set_color(gs_effect_get_param_by_name(e, "color"), 0xFF00FF00);
+		gs_effect_set_color(gs_effect_get_param_by_name(e, "color"), QR_RECT_COLOR);
 		while (gs_effect_loop(e, "Solid")) {
 			gs_render_start(false);
 			gs_vertex2f((float)x0, (float)y0);
@@ -209,7 +208,7 @@ static void video_render(void *data, gs_effect_t *effect)
 void register_sync_test_monitor(bool list)
 {
 	struct obs_source_info info = {
-		.id = ID_PREFIX "monitor",
+		.id = MONITOR_ID,
 		.type = OBS_SOURCE_TYPE_INPUT,
 		.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW,
 		.get_name = get_name,
