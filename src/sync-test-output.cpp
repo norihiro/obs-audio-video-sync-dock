@@ -463,11 +463,6 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	uint32_t symbol_num = st->audio_sample_rate * st->c_last;
 	uint32_t symbol_den = st->f_last;
 
-	struct audio_marker_found_s data;
-	data.timestamp = ts - st->start_ts;
-	data.index = st->qr_data.index;
-	data.score = 0.0f;
-
 	float data_flt[12];
 	uint16_t index = 0;
 	for (int i = 0; i < 12; i += 2) {
@@ -495,6 +490,11 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	struct calldata cd;
 	calldata_init_fixed(&cd, stack, sizeof(stack));
 	auto *sh = obs_output_get_signal_handler(st->context);
+
+	struct audio_marker_found_s data;
+	data.timestamp = ts - st->start_ts;
+	data.index = index >> 4;
+	data.score = 0.0f;
 
 	calldata_set_ptr(&cd, "data", &data);
 	signal_handler_signal(sh, "audio_marker_found", &cd);
