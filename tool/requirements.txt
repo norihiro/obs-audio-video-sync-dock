@@ -1,2 +1,2 @@
 qrcode
-Pillow
+Pillow >= 10.1.0

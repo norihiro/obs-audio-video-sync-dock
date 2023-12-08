@@ -8,7 +8,7 @@ import math
 import os
 import shutil
 import subprocess
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import qrcode
 
 
@@ -140,6 +140,7 @@ class Pattern:
         self.ctx = ctx
         self._prepare(settings)
         self.i = 0
+        self._font_cache = None
 
     def _prepare(self, settings):
         q = 2
@@ -170,17 +171,27 @@ class Pattern:
                              + f'audio marker duration {audio_duration} second')
         self.q, self.f, self.c = q, f, c
 
+    def _prepare_font(self):
+        if self._font_cache:
+            return self._font_cache
+        d = abs(self.ctx.width - self.ctx.height)
+        font = ImageFont.load_default(size=d//6)
+        self._font_cache = font
+        return font
+
     def _gen_qrcode(self, i):
         ctx = self.ctx
         f, c = self.f, self.c
         q_ms = self.q * 1000 * ctx.vr[1] // ctx.vr[0]
-        qr_img = qrcode.make(f'q={q_ms},i={i & 0xFF},f={f},c={c},t={ctx.type_flags}',
+        qr_img = qrcode.make(f'q={q_ms},i={i},f={f},c={c},t={ctx.type_flags}',
                              error_correction=qrcode.constants.ERROR_CORRECT_M).get_image()
         size = min(ctx.width, ctx.height)
         qr_img = qr_img.resize((size, size))
         base_img = Image.new('RGB', (ctx.width, ctx.height), (127, 127, 127))
         offset = ((ctx.width - size) // 2, (ctx.height - size) // 2)
         base_img.paste(qr_img, offset)
+        draw = ImageDraw.Draw(base_img)
+        draw.text(xy=(20, ctx.height-20), text=f'{i}', font=self._prepare_font(), anchor='lb')
         qr_filename = ctx.next_image()
         base_img.save(qr_filename)
         return qr_filename
@@ -189,7 +200,7 @@ class Pattern:
         '''
         Returns a list of video frame files
         '''
-        qr_filename = self._gen_qrcode(self.i)
+        qr_filename = self._gen_qrcode(self.i & 0xFF)
         r_qr = [qr_filename] * self.q
         r_s0 = [self.ctx.sync_image(0)] * self.q
         r_s1 = [self.ctx.sync_image(1)] * self.q
