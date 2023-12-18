@@ -3,6 +3,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <obs.hpp>
+#include "sync-test-output.hpp"
 
 class SyncTestDock : public QFrame {
 	Q_OBJECT
@@ -15,18 +16,27 @@ private:
 	QPushButton *startButton = nullptr;
 
 	QLabel *latencyDisplay = nullptr;
+	QLabel *indexDisplay = nullptr;
+	QLabel *frequencyDisplay = nullptr;
+	QLabel *videoIndexDisplay = nullptr;
+	QLabel *audioIndexDisplay = nullptr;
 
 private:
 	OBSOutput sync_test;
 
 private:
-	uint64_t last_video_ts;
-	uint64_t last_audio_ts[MAX_AV_PLANES];
+	int last_video_ix;
+	int last_audio_ix;
+	int missed_video_ix;
+	int missed_audio_ix;
+	int received_video_ix;
+	int received_audio_ix;
 
 private:
 	void on_start_stop();
 
 private slots:
-	void on_video_marker_found(uint64_t timestamp, double score);
-	void on_audio_marker_found(int channel, uint64_t timestamp, double score);
+	void on_video_marker_found(video_marker_found_s data);
+	void on_audio_marker_found(audio_marker_found_s data);
+	void on_sync_found(uint64_t video_ts, uint64_t audio_ts, int index);
 };

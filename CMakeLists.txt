@@ -49,6 +49,7 @@ set(PLUGIN_SOURCES
 	src/plugin-main.c
 	src/sync-test-output.cpp
 	src/sync-test-dock.cpp
+	src/sync-test-monitor.c
 	src/dock-compat.cpp
 	deps/quirc/lib/decode.c
 	deps/quirc/lib/identify.c
@@ -84,6 +85,7 @@ if(OS_WINDOWS)
 	if (MSVC)
 		add_definitions(/MP /d2FH4-)
 		add_definitions("-D_USE_MATH_DEFINES") # for M_PI
+		add_definitions("-Dstrtok_r=strtok_s")
 	endif()
 
 	target_link_libraries(${CMAKE_PROJECT_NAME} OBS::w32-pthreads)

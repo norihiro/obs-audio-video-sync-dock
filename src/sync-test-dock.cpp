@@ -41,11 +41,36 @@ SyncTestDock::SyncTestDock(QWidget *parent) : QFrame(parent)
 	mainLayout->addWidget(startButton);
 	connect(startButton, &QPushButton::clicked, this, &SyncTestDock::on_start_stop);
 
-	QLabel *latencyLabel = new QLabel(obs_module_text("Label.Latency"), this);
-	topLayout->addWidget(latencyLabel, 0, 0);
+	QLabel *label;
+	label = new QLabel(obs_module_text("Label.Latency"), this);
+	topLayout->addWidget(label, 0, 0);
 
 	latencyDisplay = new QLabel("-", this);
 	topLayout->addWidget(latencyDisplay, 0, 1);
+
+	label = new QLabel(obs_module_text("Label.Index"), this);
+	topLayout->addWidget(label, 1, 0);
+
+	indexDisplay = new QLabel("-", this);
+	topLayout->addWidget(indexDisplay, 1, 1);
+
+	label = new QLabel(obs_module_text("Label.Frequency"), this);
+	topLayout->addWidget(label, 2, 0);
+
+	frequencyDisplay = new QLabel("-", this);
+	topLayout->addWidget(frequencyDisplay, 2, 1);
+
+	label = new QLabel(obs_module_text("Label.VideoIndex"), this);
+	topLayout->addWidget(label, 3, 0);
+
+	videoIndexDisplay = new QLabel("-", this);
+	topLayout->addWidget(videoIndexDisplay, 3, 1);
+
+	label = new QLabel(obs_module_text("Label.AudioIndex"), this);
+	topLayout->addWidget(label, 4, 0);
+
+	audioIndexDisplay = new QLabel("-", this);
+	topLayout->addWidget(audioIndexDisplay, 4, 1);
 
 	mainLayout->addLayout(topLayout);
 	setLayout(mainLayout);
@@ -60,46 +85,53 @@ SyncTestDock::~SyncTestDock()
 }
 
 Q_DECLARE_METATYPE(uint64_t);
+Q_DECLARE_METATYPE(video_marker_found_s);
+Q_DECLARE_METATYPE(audio_marker_found_s);
 
 extern "C" QWidget *create_sync_test_dock()
 {
 	qRegisterMetaType<uint64_t>("uint64_t");
+	qRegisterMetaType<video_marker_found_s>("video_marker_found_s");
+	qRegisterMetaType<audio_marker_found_s>("audio_marker_found_s");
 
 	const auto main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	return static_cast<QWidget *>(new SyncTestDock(main_window));
 }
 
-static void cb_video_marker_found(void *param, calldata_t *data)
+#define CD_TO_LOCAL(type, name, get_func)  \
+	type name;                         \
+	if (!get_func(cd, #name, &name)) \
+		return;
+
+static void cb_video_marker_found(void *param, calldata_t *cd)
 {
 	auto *dock = (SyncTestDock *)param;
 
-	long long timestamp;
-	if (!calldata_get_int(data, "timestamp", &timestamp))
-		return;
-	double score;
-	if (!calldata_get_float(data, "score", &score))
-		return;
+	CD_TO_LOCAL(video_marker_found_s *, data, calldata_get_ptr);
 
-	QMetaObject::invokeMethod(dock, "on_video_marker_found", Q_ARG(uint64_t, timestamp), Q_ARG(double, score));
+	QMetaObject::invokeMethod(dock, "on_video_marker_found", Q_ARG(video_marker_found_s, *data));
 };
 
-static void cb_audio_marker_found(void *param, calldata_t *data)
+static void cb_audio_marker_found(void *param, calldata_t *cd)
 {
 	auto *dock = (SyncTestDock *)param;
 
-	long long channel;
-	if (!calldata_get_int(data, "channel", &channel))
-		return;
-	long long timestamp;
-	if (!calldata_get_int(data, "timestamp", &timestamp))
-		return;
-	double score;
-	if (!calldata_get_float(data, "score", &score))
-		return;
+	CD_TO_LOCAL(audio_marker_found_s *, data, calldata_get_ptr);
 
-	QMetaObject::invokeMethod(dock, "on_audio_marker_found", Q_ARG(int, channel), Q_ARG(uint64_t, timestamp),
-				  Q_ARG(double, score));
+	QMetaObject::invokeMethod(dock, "on_audio_marker_found", Q_ARG(audio_marker_found_s, *data));
 };
+
+static void cb_sync_found(void *param, calldata_t *cd)
+{
+	auto *dock = (SyncTestDock *)param;
+
+	CD_TO_LOCAL(long long, video_ts, calldata_get_int);
+	CD_TO_LOCAL(long long, audio_ts, calldata_get_int);
+	CD_TO_LOCAL(long long, index, calldata_get_int);
+
+	QMetaObject::invokeMethod(dock, "on_sync_found", Q_ARG(uint64_t, video_ts), Q_ARG(uint64_t, audio_ts),
+				  Q_ARG(int, index));
+}
 
 void SyncTestDock::on_start_stop()
 {
@@ -110,9 +142,14 @@ void SyncTestDock::on_start_stop()
 			return;
 		}
 
+		last_video_ix = last_audio_ix = -1;
+		missed_video_ix = missed_audio_ix = 0;
+		received_video_ix = received_audio_ix = 0;
+
 		auto *sh = obs_output_get_signal_handler(o);
 		signal_handler_connect(sh, "video_marker_found", cb_video_marker_found, this);
 		signal_handler_connect(sh, "audio_marker_found", cb_audio_marker_found, this);
+		signal_handler_connect(sh, "sync_found", cb_sync_found, this);
 
 		obs_output_start(o);
 
@@ -130,27 +167,39 @@ void SyncTestDock::on_start_stop()
 	}
 }
 
-void SyncTestDock::on_video_marker_found(uint64_t timestamp, double)
+void SyncTestDock::on_video_marker_found(struct video_marker_found_s data)
 {
-	blog(LOG_INFO, "%s: %.05f", __func__, timestamp * 1e-9);
-	ASSERT_THREAD(OBS_TASK_UI);
-	last_video_ts = timestamp;
+	const int index = data.qr_data.index;
+	if (last_video_ix >= 0) {
+		int m = (index - last_video_ix - 1) & 0xFF;
+		if (m < 0x80)
+			missed_video_ix += m;
+	}
+	blog(LOG_INFO, "index=%d last_video_ix=%d missed_video_ix=%d received_video_ix=%d", index, last_video_ix, missed_video_ix, received_video_ix);
+	last_video_ix = index;
+	received_video_ix ++;
+	frequencyDisplay->setText(QString("%1 Hz").arg(data.qr_data.f));
+	int missed = missed_video_ix * 100 / (received_video_ix + missed_video_ix);
+	videoIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));
 }
 
-void SyncTestDock::on_audio_marker_found(int channel, uint64_t timestamp, double)
+void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
 {
-	blog(LOG_INFO, "%s: [%d] %.05f", __func__, channel, timestamp * 1e-9);
-	ASSERT_THREAD(OBS_TASK_UI);
-	if (MAX_AV_PLANES <= channel)
-		return;
-	last_audio_ts[channel] = timestamp;
-
-	if (channel == 0) {
-		int64_t ts = (int64_t)(timestamp - last_video_ts);
-		if (ts > 500000000)
-			ts -= 1000000000;
-		latencyDisplay->setText(QString("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
-		blog(LOG_INFO, "diff=%05f", ts * 1e-9);
-		// TODO: also display other channels
+	const int index = data.index;
+	if (last_audio_ix >= 0) {
+		int m = (index - last_audio_ix - 1) & 0xFF;
+		if (m < 0x80)
+			missed_audio_ix += m;
 	}
+	last_audio_ix = index;
+	received_audio_ix ++;
+	int missed = missed_audio_ix * 100 / (received_audio_ix + missed_audio_ix);
+	audioIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));
+}
+
+void SyncTestDock::on_sync_found(uint64_t video_ts, uint64_t audio_ts, int index)
+{
+	int64_t ts = (int64_t)audio_ts - (int64_t)video_ts;
+	latencyDisplay->setText(QString("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
+	indexDisplay->setText(QString("%1").arg(index));
 }
