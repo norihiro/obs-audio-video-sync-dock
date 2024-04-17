@@ -463,7 +463,6 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	uint32_t symbol_num = st->audio_sample_rate * st->c_last;
 	uint32_t symbol_den = st->f_last;
 
-	float data_flt[12];
 	uint16_t index = 0;
 	for (int i = 0; i < 12; i += 2) {
 		auto s0 = st->audio_buffer.sum(symbol_num * i / 2 / symbol_den);
@@ -475,8 +474,6 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 			index |= 1 << i;
 		if (imag > 0.0f)
 			index |= 2 << i;
-		data_flt[i + 0] = real;
-		data_flt[i + 1] = imag;
 	}
 
 	auto crc4 = crc4_check(0xF0000 | index, 20);
