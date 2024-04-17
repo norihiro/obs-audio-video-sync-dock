@@ -296,9 +296,9 @@ class VideoGen:
         '''
 
     def _generate_video(self, i0_fmt, n_repeat):
-        i = 0
         i_frame = 0
         for p in self.patterns:
+            i = 0
             p.i = 0
             while i < n_repeat:
                 for f in p.video_frames():
@@ -309,10 +309,10 @@ class VideoGen:
     def _generate_audio(self, i1_name, n_repeat):
         ctx = self.ctx
         with open(i1_name, 'wb') as i1:
-            i = 0
             i_audio_frame = 0
             i_video_frame = 0
             for p in self.patterns:
+                i = 0
                 p.i = 0
                 while i < n_repeat:
                     i_audio_exp = i_video_frame * ctx.vr[1] * ctx.ar // ctx.vr[0]
