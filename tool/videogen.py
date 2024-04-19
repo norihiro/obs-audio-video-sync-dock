@@ -141,6 +141,7 @@ class Pattern:
         self._prepare(settings)
         self.i = 0
         self._font_cache = None
+        self.index_max = 256
 
     def _prepare(self, settings):
         q = 2
@@ -183,7 +184,7 @@ class Pattern:
         ctx = self.ctx
         f, c = self.f, self.c
         q_ms = self.q * 1000 * ctx.vr[1] // ctx.vr[0]
-        qr_img = qrcode.make(f'q={q_ms},i={i},f={f},c={c},t={ctx.type_flags}',
+        qr_img = qrcode.make(f'q={q_ms},i={i},f={f},c={c},t={ctx.type_flags},I={self.index_max}',
                              error_correction=qrcode.constants.ERROR_CORRECT_M).get_image()
         size = min(ctx.width, ctx.height)
         qr_img = qr_img.resize((size, size))
@@ -300,7 +301,14 @@ class VideoGen:
         for p in self.patterns:
             i = 0
             p.i = 0
+            if n_repeat <= 256:
+                p.index_max = n_repeat
             while i < n_repeat:
+                if n_repeat > 256:
+                    if i < (n_repeat & ~0xFF):
+                        p.index_max = 256
+                    else:
+                        p.index_max = ((n_repeat - 1) & 0xFF) + 1
                 for f in p.video_frames():
                     os.link(f, i0_fmt % i_frame)
                     i_frame += 1
