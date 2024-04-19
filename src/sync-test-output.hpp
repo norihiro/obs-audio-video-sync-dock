@@ -8,6 +8,7 @@ struct st_qr_data
 	uint32_t c = 0;
 	uint32_t q_ms = 0;
 	uint32_t index = -1;
+	uint32_t index_max = 256;
 	uint32_t type_flags = 0;
 	bool valid = 0;
 
@@ -34,6 +35,9 @@ struct st_qr_data
 			return true;
 		case 'i':
 			index = (uint32_t)atoi(val);
+			return true;
+		case 'I':
+			index_max = (uint32_t)atoi(val);
 			return true;
 		case 't':
 			type_flags = (uint32_t)atoi(val);
