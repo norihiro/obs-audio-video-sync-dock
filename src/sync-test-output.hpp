@@ -100,4 +100,5 @@ struct audio_marker_found_s
 	uint64_t timestamp;
 	int index;
 	float score;
+	uint32_t index_max;
 };
