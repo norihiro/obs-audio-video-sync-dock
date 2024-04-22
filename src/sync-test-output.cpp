@@ -83,6 +83,7 @@ struct sync_index
 	int index = -1;
 	uint64_t video_ts = 0;
 	uint64_t audio_ts = 0;
+	uint32_t index_max = 256;
 };
 
 struct sync_test_output
@@ -112,6 +113,7 @@ struct sync_test_output
 	/* Sync pattern detection from audio */
 	struct st_audio_buffer audio_buffer;
 	struct peak_finder audio_marker_finder;
+	uint32_t last_audio_index_max = 256;
 
 	/* Multiplex sync pattern detection result */
 	std::list<struct sync_index> sync_indices;
@@ -366,13 +368,18 @@ static void st_raw_video_find_marker(struct sync_test_output *st, struct video_d
 	st->video_level_prev_ts = frame->timestamp;
 }
 
-static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts, bool is_video)
+static bool is_overlapped(uint32_t index, uint32_t index_max, uint32_t next_index)
+{
+	return index_max && ((index_max + next_index - index) % index_max) > index_max / 2;
+}
+
+static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts, bool is_video, uint32_t index_max)
 {
 	std::unique_lock<std::mutex> lock(st->mutex);
 	for (auto it = st->sync_indices.begin(); it != st->sync_indices.end();) {
 
 		if ((it->video_ts && is_video) || (it->audio_ts && !is_video)) {
-			if (((index - it->index) & 0xFF) > 0x7F) {
+			if (is_overlapped(it->index, it->index_max, index)) {
 				st->sync_indices.erase(it++);
 				continue;
 			}
@@ -384,6 +391,8 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 		}
 		if ((it->video_ts && !is_video) || (it->audio_ts && is_video)) {
 			(is_video ? it->video_ts : it->audio_ts) = ts;
+			if (is_video)
+				it->index_max = index_max;
 
 			uint8_t stack[512];
 			struct calldata cd;
@@ -396,7 +405,8 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 			calldata_set_float(&cd, "score", 0.0);
 			signal_handler_signal(sh, "sync_found", &cd);
 
-			st->sync_indices.erase(it);
+			/* Do not erase `it` so that `identify_audio_index_max` can refer the last found pattern.
+			 * Current `it` will be erased at the next call of this function. */
 			return;
 		}
 
@@ -411,6 +421,7 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 	auto &ref = st->sync_indices.emplace_back();
 	ref.index = index;
 	(is_video ? ref.video_ts : ref.audio_ts) = ts;
+	ref.index_max = index_max;
 }
 
 static void video_marker_found(struct sync_test_output *st, uint64_t timestamp, float score)
@@ -424,12 +435,11 @@ static void video_marker_found(struct sync_test_output *st, uint64_t timestamp, 
 	data.timestamp = timestamp - st->start_ts;
 	data.score = score;
 	data.qr_data = st->qr_data;
-	data.qr_data.index = st->qr_data.index;
 
 	calldata_set_ptr(&cd, "data", &data);
 	signal_handler_signal(sh, "video_marker_found", &cd);
 
-	sync_index_found(st, data.qr_data.index, data.timestamp, true);
+	sync_index_found(st, data.qr_data.index, data.timestamp, true, data.qr_data.index_max);
 }
 
 static void st_raw_video(void *data, struct video_data *frame)
@@ -444,6 +454,32 @@ static void st_raw_video(void *data, struct video_data *frame)
 
 	st_raw_video_qrcode_decode(st, frame);
 	st_raw_video_find_marker(st, frame);
+}
+
+static uint32_t identify_audio_index_max(struct sync_test_output *st, int index)
+{
+	/* Find `index_max` for video marker that have the biggest index but
+	 * the index is less than or equal to the given index.
+	 * In other words, find the closest but not future video marker.
+	 */
+
+	std::unique_lock<std::mutex> lock(st->mutex);
+	uint32_t last_index_max = 256;
+	uint32_t cand = st->last_audio_index_max;
+	uint32_t cand_diff = 256;
+
+	for (auto it = st->sync_indices.begin(); it != st->sync_indices.end(); it++) {
+		if (!it->video_ts || !it->index_max)
+			continue;
+		uint32_t diff = (last_index_max + index - it->index) % last_index_max;
+		if (diff < cand_diff) {
+			cand = it->index_max;
+			cand_diff = diff;
+		}
+		last_index_max = it->index_max;
+	}
+
+	return st->last_audio_index_max = cand;
 }
 
 static uint32_t crc4_check(uint32_t data, uint32_t size)
@@ -492,11 +528,12 @@ static inline void st_raw_audio_decode_data(struct sync_test_output *st, std::co
 	data.timestamp = ts - st->start_ts;
 	data.index = index >> 4;
 	data.score = 0.0f;
+	data.index_max = identify_audio_index_max(st, index >> 4);
 
 	calldata_set_ptr(&cd, "data", &data);
 	signal_handler_signal(sh, "audio_marker_found", &cd);
 
-	sync_index_found(st, index >> 4, ts - st->start_ts, false);
+	sync_index_found(st, index >> 4, ts - st->start_ts, false, data.index_max);
 }
 
 static inline void st_raw_audio_test_preamble(struct sync_test_output *st, uint64_t ts, float v0)
