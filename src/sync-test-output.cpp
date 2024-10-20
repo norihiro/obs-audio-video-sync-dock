@@ -56,6 +56,8 @@ struct st_audio_buffer
 
 	std::pair<int32_t, int32_t> sum(size_t n_from_last)
 	{
+		if (buffer.size() <= 0)
+			return std::make_pair(0, 0);
 		if (n_from_last >= buffer.size())
 			return buffer[0];
 		return buffer[buffer.size() - n_from_last - 1];
@@ -69,7 +71,7 @@ std::pair<int32_t, int32_t> operator-(std::pair<int32_t, int32_t> a, std::pair<i
 
 std::complex<float> int16_to_complex(std::pair<int32_t, int32_t> x)
 {
-	return std::complex<float>((float)x.first, (float)x.second) / 32767.0f;
+	return std::complex<float>((float)x.first / 32768.0f, (float)x.second / 32768.0f);
 }
 
 struct corner_type
