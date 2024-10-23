@@ -235,8 +235,7 @@ class Pattern:
             raise ValueError(f'Too large start_offset; {start_offset}, expect <= {n_blank_begin}')
         i = 0
         buffer = b'\x00\x00' * (n_blank_begin - start_offset)
-        sym_prev = -1
-        sym = -1
+        sym_prev, sym, sym_next = -1, -1, -1
         i_data_prev = -1
         while i < n_pattern:
             phase = i * 2 * math.pi * f / ctx.ar
