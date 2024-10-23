@@ -246,6 +246,25 @@ static inline int qrcode_length(const struct quirc_point *corners)
 	return (int)((l01 + l03) / 2.0f);
 }
 
+static void signal_qrcode_found(obs_output_t *ctx, uint64_t timestamp, const struct corner_type *corners)
+{
+	uint8_t stack[384];
+	struct calldata cd;
+	calldata_init_fixed(&cd, stack, sizeof(stack));
+	auto *sh = obs_output_get_signal_handler(ctx);
+
+	calldata_set_int(&cd, "timestamp", timestamp);
+	calldata_set_int(&cd, "x0", corners[0].x);
+	calldata_set_int(&cd, "y0", corners[0].y);
+	calldata_set_int(&cd, "x1", corners[1].x);
+	calldata_set_int(&cd, "y1", corners[1].y);
+	calldata_set_int(&cd, "x2", corners[2].x);
+	calldata_set_int(&cd, "y2", corners[2].y);
+	calldata_set_int(&cd, "x3", corners[3].x);
+	calldata_set_int(&cd, "y3", corners[3].y);
+	signal_handler_signal(sh, "qrcode_found", &cd);
+}
+
 static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video_data *frame)
 {
 	int w, h;
@@ -283,28 +302,14 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 		if (err)
 			continue;
 
-		uint8_t stack[384];
-		struct calldata cd;
-		calldata_init_fixed(&cd, stack, sizeof(stack));
-		auto *sh = obs_output_get_signal_handler(st->context);
-
-		calldata_set_int(&cd, "timestamp", frame->timestamp - st->start_ts);
-		calldata_set_int(&cd, "x0", code.corners[0].x * st->qr_step);
-		calldata_set_int(&cd, "y0", code.corners[0].y * st->qr_step);
-		calldata_set_int(&cd, "x1", code.corners[1].x * st->qr_step);
-		calldata_set_int(&cd, "y1", code.corners[1].y * st->qr_step);
-		calldata_set_int(&cd, "x2", code.corners[2].x * st->qr_step);
-		calldata_set_int(&cd, "y2", code.corners[2].y * st->qr_step);
-		calldata_set_int(&cd, "x3", code.corners[3].x * st->qr_step);
-		calldata_set_int(&cd, "y3", code.corners[3].y * st->qr_step);
-		signal_handler_signal(sh, "qrcode_found", &cd);
-
 		int r = qrcode_length(code.corners) * 3 / 8;
 		for (int j = 0; j < 4; j++) {
 			st->qr_corners[j].x = code.corners[j].x * st->qr_step;
 			st->qr_corners[j].y = code.corners[j].y * st->qr_step;
 			st->qr_corners[j].r = r;
 		}
+
+		signal_qrcode_found(st->context, frame->timestamp - st->start_ts, st->qr_corners);
 
 		data.payload[QUIRC_MAX_PAYLOAD - 1] = 0;
 		if (!st->qr_data.decode((char *)data.payload))
@@ -375,11 +380,25 @@ static bool is_overlapped(uint32_t index, uint32_t index_max, uint32_t next_inde
 	return index_max && ((index_max + next_index - index) % index_max) > index_max / 2;
 }
 
+static void signal_sync_found(obs_output_t *ctx, const struct sync_index *si, double score)
+{
+	uint8_t stack[192];
+	struct calldata cd;
+	calldata_init_fixed(&cd, stack, sizeof(stack));
+	auto *sh = obs_output_get_signal_handler(ctx);
+
+	calldata_set_int(&cd, "index", si->index);
+	calldata_set_int(&cd, "video_ts", (long long)si->video_ts);
+	calldata_set_int(&cd, "audio_ts", (long long)si->audio_ts);
+	calldata_set_float(&cd, "score", score);
+	signal_handler_signal(sh, "sync_found", &cd);
+}
+
 static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts, bool is_video, uint32_t index_max)
 {
 	std::unique_lock<std::mutex> lock(st->mutex);
-	for (auto it = st->sync_indices.begin(); it != st->sync_indices.end();) {
 
+	for (auto it = st->sync_indices.begin(); it != st->sync_indices.end();) {
 		if ((it->video_ts && is_video) || (it->audio_ts && !is_video)) {
 			if (is_overlapped(it->index, it->index_max, index)) {
 				st->sync_indices.erase(it++);
@@ -391,21 +410,13 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 			it++;
 			continue;
 		}
+
 		if ((it->video_ts && !is_video) || (it->audio_ts && is_video)) {
 			(is_video ? it->video_ts : it->audio_ts) = ts;
 			if (is_video)
 				it->index_max = index_max;
 
-			uint8_t stack[512];
-			struct calldata cd;
-			calldata_init_fixed(&cd, stack, sizeof(stack));
-			auto *sh = obs_output_get_signal_handler(st->context);
-
-			calldata_set_int(&cd, "index", index);
-			calldata_set_int(&cd, "video_ts", (long long)it->video_ts);
-			calldata_set_int(&cd, "audio_ts", (long long)it->audio_ts);
-			calldata_set_float(&cd, "score", 0.0);
-			signal_handler_signal(sh, "sync_found", &cd);
+			signal_sync_found(st->context, &*it, 0.0);
 
 			/* Do not erase `it` so that `identify_audio_index_max` can refer the last found pattern.
 			 * Current `it` will be erased at the next call of this function. */
