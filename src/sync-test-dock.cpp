@@ -98,9 +98,9 @@ extern "C" QWidget *create_sync_test_dock()
 	return static_cast<QWidget *>(new SyncTestDock(main_window));
 }
 
-#define CD_TO_LOCAL(type, name, get_func)  \
-	type name;                         \
-	if (!get_func(cd, #name, &name)) \
+#define CD_TO_LOCAL(type, name, get_func) \
+	type name;                        \
+	if (!get_func(cd, #name, &name))  \
 		return;
 
 static void cb_video_marker_found(void *param, calldata_t *cd)
@@ -183,7 +183,7 @@ void SyncTestDock::on_video_marker_found(struct video_marker_found_s data)
 	missed_video_ix += missed_markers(index, last_video_ix, received_video_index_max);
 	last_video_ix = index;
 	received_video_index_max = data.qr_data.index_max;
-	received_video_ix ++;
+	received_video_ix++;
 	frequencyDisplay->setText(QString("%1 Hz").arg(data.qr_data.f));
 	int missed = missed_video_ix * 100 / (received_video_ix + missed_video_ix);
 	videoIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));
@@ -195,7 +195,7 @@ void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
 	missed_audio_ix += missed_markers(index, last_audio_ix, received_audio_index_max);
 	last_audio_ix = index;
 	received_audio_index_max = data.index_max;
-	received_audio_ix ++;
+	received_audio_ix++;
 	int missed = missed_audio_ix * 100 / (received_audio_ix + missed_audio_ix);
 	audioIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));
 }
