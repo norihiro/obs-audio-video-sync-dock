@@ -145,6 +145,9 @@ void SyncTestDock::on_start_stop()
 		last_video_ix = last_audio_ix = -1;
 		missed_video_ix = missed_audio_ix = 0;
 		received_video_ix = received_audio_ix = 0;
+		received_video_index_max = 256;
+		received_audio_index_max = 256;
+		audio_index_max = 256;
 
 		auto *sh = obs_output_get_signal_handler(o);
 		signal_handler_connect(sh, "video_marker_found", cb_video_marker_found, this);
@@ -167,16 +170,19 @@ void SyncTestDock::on_start_stop()
 	}
 }
 
+static int missed_markers(int index, int last_index, int max_index)
+{
+	if (index == last_index + 1 || last_index < 0 || max_index <= 0)
+		return 0;
+	return (max_index + index - last_index - 1) % max_index;
+}
+
 void SyncTestDock::on_video_marker_found(struct video_marker_found_s data)
 {
 	const int index = data.qr_data.index;
-	if (last_video_ix >= 0) {
-		int m = (index - last_video_ix - 1) & 0xFF;
-		if (m < 0x80)
-			missed_video_ix += m;
-	}
-	blog(LOG_INFO, "index=%d last_video_ix=%d missed_video_ix=%d received_video_ix=%d", index, last_video_ix, missed_video_ix, received_video_ix);
+	missed_video_ix += missed_markers(index, last_video_ix, received_video_index_max);
 	last_video_ix = index;
+	received_video_index_max = data.qr_data.index_max;
 	received_video_ix ++;
 	frequencyDisplay->setText(QString("%1 Hz").arg(data.qr_data.f));
 	int missed = missed_video_ix * 100 / (received_video_ix + missed_video_ix);
@@ -186,12 +192,9 @@ void SyncTestDock::on_video_marker_found(struct video_marker_found_s data)
 void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
 {
 	const int index = data.index;
-	if (last_audio_ix >= 0) {
-		int m = (index - last_audio_ix - 1) & 0xFF;
-		if (m < 0x80)
-			missed_audio_ix += m;
-	}
+	missed_audio_ix += missed_markers(index, last_audio_ix, received_audio_index_max);
 	last_audio_ix = index;
+	received_audio_index_max = data.index_max;
 	received_audio_ix ++;
 	int missed = missed_audio_ix * 100 / (received_audio_ix + missed_audio_ix);
 	audioIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));

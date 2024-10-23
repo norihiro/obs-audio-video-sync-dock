@@ -31,6 +31,9 @@ private:
 	int missed_audio_ix;
 	int received_video_ix;
 	int received_audio_ix;
+	int received_video_index_max = 0;
+	int received_audio_index_max = 0;
+	int audio_index_max = 0;
 
 private:
 	void on_start_stop();
