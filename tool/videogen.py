@@ -381,6 +381,8 @@ class VideoGen:
         ffmpeg_cmd += ['-f', 's16le', '-ac', '1', '-ar', '%d'%ctx.ar, '-i', i1_name]
         ffmpeg_cmd += ['-pix_fmt', 'yuv420p']
         ffmpeg_cmd += ['-b:a', '192k']
+        if filename[-4:] == '.mp4':
+            ffmpeg_cmd += ['-movflags', '+faststart']
         ffmpeg_cmd += ['-y', filename]
         subprocess.run(ffmpeg_cmd, check=True)
         os.unlink(i1_name)
