@@ -13,7 +13,7 @@ import qrcode
 
 
 def _div_ceil(n, m):
-    return (n + m - 1) // m
+    return int(n + m - 1) // m
 
 
 def crc4(data, size):
