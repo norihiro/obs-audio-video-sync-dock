@@ -68,6 +68,16 @@ class Context:
         self.type_flags = 0
         self._image_files = []
 
+    def set_video_size(self, size):
+        '''
+        Set the video size
+        Argument:
+        - size -- A string to specify the video size, eg. 1280x720.
+        '''
+        w_h = size.split('x', 1)
+        self.width = int(w_h[0])
+        self.height = int(w_h[1])
+
     def next_image(self):
         '''
         Returns a file name for the next temporarily image file.
@@ -405,6 +415,8 @@ def _main():
     parser.add_argument('-w', '--workdir', action='store', default='.',
                         help='Store temporarily files under this directory')
     parser.add_argument('--vr', action='store', default='30', help='Video framerate')
+    parser.add_argument('--size', action='store', default=None,
+                        help='Video size, default is 1280x720.')
     parser.add_argument('--ar', action='store', default='48000', help='Audio sampling frequency')
     parser.add_argument('--dryrun', action='store_true', default=False,
                         help='Do not actually generate the video file')
@@ -420,6 +432,8 @@ def _main():
     parser.add_argument('patterns', nargs='+', help='Pattern definition of synchronization marker')
     args = parser.parse_args()
     ctx = Context(args.workdir, args.vr, args.ar)
+    if args.size:
+        ctx.set_video_size(args.size)
     ctx.audio_rectangle = args.rectangle
     ctx.audio_continuous = args.smooth
     gen = VideoGen(ctx)
