@@ -35,6 +35,14 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #define N_AUDIO_SYMBOLS 16
 #define N_SYMBOL_BUFFER 20
 
+/* There are several reason to limit the width and the height.
+ * - Since a square of 3/8 QR-code-length is calculated using uint32_t,
+ *   the 3/8 of width or height cannot exceed the square root of uint32_t max.
+ * - Since a sum of the pixels in a line is accumurated on uint32_t,
+ *   the width must be less than 1/255 of uint32_t max.
+ *   */
+#define MAX_WIDTH_HEIGHT 87378u
+
 struct st_audio_buffer
 {
 	std::deque<std::pair<int32_t, int32_t>> buffer;
@@ -96,6 +104,7 @@ struct sync_test_output
 	uint32_t video_width = 0, video_height = 0;
 	uint32_t video_pixelsize = 0;
 	uint32_t video_pixeloffset = 0;
+	uint8_t (*video_get_intensity)(const uint8_t *data) = nullptr;
 
 	uint32_t audio_sample_rate = 0;
 	size_t audio_channels = 0;
@@ -167,6 +176,11 @@ static void st_destroy(void *data)
 	delete st;
 }
 
+static uint8_t get_intensity_10le(const uint8_t *data)
+{
+	return (data[0] >> 2) | (data[1] << 6);
+}
+
 static bool st_start(void *data)
 {
 	auto *st = (struct sync_test_output *)data;
@@ -184,17 +198,46 @@ static bool st_start(void *data)
 
 	st->video_width = video_output_get_width(video);
 	st->video_height = video_output_get_height(video);
+	if (st->video_width > MAX_WIDTH_HEIGHT || st->video_height > MAX_WIDTH_HEIGHT) {
+		blog(LOG_ERROR, "Requested size %ux%u exceeds maximum size %ux%u", st->video_width, st->video_height,
+		     MAX_WIDTH_HEIGHT, MAX_WIDTH_HEIGHT);
+		return false;
+	}
+
 	enum video_format video_format = video_output_get_format(video);
 	switch (video_format) {
+	case VIDEO_FORMAT_I420:
 	case VIDEO_FORMAT_NV12:
+	case VIDEO_FORMAT_I444:
+	case VIDEO_FORMAT_I422:
+	case VIDEO_FORMAT_I40A:
+	case VIDEO_FORMAT_I42A:
+	case VIDEO_FORMAT_YUVA:
 		st->video_pixelsize = 1;
 		st->video_pixeloffset = 0;
+		st->video_get_intensity = nullptr;
 		break;
-	case VIDEO_FORMAT_I444:
-	case VIDEO_FORMAT_I420:
+	case VIDEO_FORMAT_I010:
+	case VIDEO_FORMAT_P010:
+		st->video_pixelsize = 2;
+		st->video_pixeloffset = 0;
+		st->video_get_intensity = get_intensity_10le;
+		break;
+#if LIBOBS_API_VER >= MAKE_SEMANTIC_VERSION(29, 1, 0)
+	case VIDEO_FORMAT_P216:
+	case VIDEO_FORMAT_P416:
+		st->video_pixelsize = 2;
+		st->video_pixeloffset = 1; // little endian
+		st->video_get_intensity = nullptr;
+		break;
+#endif
 	case VIDEO_FORMAT_RGBA:
 	case VIDEO_FORMAT_BGRA:
 	case VIDEO_FORMAT_BGRX:
+		st->video_pixelsize = 4;
+		st->video_pixeloffset = 1; // green channel
+		st->video_get_intensity = nullptr;
+		break;
 	default:
 		blog(LOG_ERROR, "unsupported pixel format %d", video_format);
 		return false;
@@ -239,6 +282,24 @@ template<typename T> T sq(T x)
 	return x * x;
 }
 
+static inline uint32_t diff_u32(uint32_t x, uint32_t y)
+{
+	if (x < y)
+		return y - x;
+	else
+		return x - y;
+}
+
+static inline uint32_t sqrt_u32(uint32_t x)
+{
+	uint32_t r = 0;
+	for (uint32_t b = 1 << 15; b; b >>= 1) {
+		if (sq(r | b) <= x)
+			r |= b;
+	}
+	return r;
+}
+
 static inline int qrcode_length(const struct quirc_point *corners)
 {
 	auto l01 = hypotf((float)(corners[0].x - corners[1].x), (float)(corners[0].y - corners[1].y));
@@ -277,9 +338,17 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 	auto *ptr = qrbuf;
 	for (int y = 0; y < h; y++) {
 		const uint8_t *data = linedata + st->video_pixeloffset + st->video_pixelsize * (qr_step / 2);
-		for (int x = 0; x < w; x++) {
-			*ptr++ = *data;
-			data += pixelsize;
+		if (!st->video_get_intensity) {
+			for (int x = 0; x < w; x++) {
+				*ptr++ = *data;
+				data += pixelsize;
+			}
+		}
+		else {
+			for (int x = 0; x < w; x++) {
+				*ptr++ = st->video_get_intensity(data);
+				data += pixelsize;
+			}
 		}
 
 		linedata += frame->linesize[0] * qr_step;
@@ -337,34 +406,47 @@ static void st_raw_video_find_marker(struct sync_test_output *st, struct video_d
 	}
 
 	const uint8_t *linedata = frame->data[0];
+	const uint32_t pixelsize = st->video_pixelsize;
 
 	for (size_t i = 0; i < N_CORNERS; i++) {
 		const struct corner_type c = st->qr_corners[i];
 		if (c.r == 0)
 			return;
-		uint32_t x0 = c.x > c.r ? c.x - c.r : 0;
-		uint32_t x1 = std::min(c.x + c.r, st->video_height);
 		uint32_t y0 = c.y > c.r ? c.y - c.r : 0;
 		uint32_t y1 = std::min(c.y + c.r, st->video_height);
 		uint32_t sq_r = sq(c.r);
 
 		for (uint32_t y = y0; y < y1; y++) {
-			const uint8_t *data = linedata + frame->linesize[0] * y + st->video_pixeloffset;
+			uint32_t dx = sqrt_u32(sq_r - sq(diff_u32(y, c.y)));
+			uint32_t x0 = c.x > dx ? c.x - dx : 0;
+			uint32_t x1 = std::min(c.x + dx, st->video_height);
 
-			for (uint32_t x = x0; x < x1; x++) {
-				if (sq(x - c.x) + sq(y - c.y) > sq_r)
-					continue;
+			const uint8_t *data =
+				linedata + frame->linesize[0] * y + st->video_pixeloffset + st->video_pixelsize * x0;
 
-				uint8_t v = data[st->video_pixelsize * x];
-				if (i & 1)
-					sum += v;
-				else
-					sum -= v;
+			uint32_t line_sum = 0;
+
+			if (!st->video_get_intensity) {
+				for (uint32_t x = x0; x < x1; x++) {
+					line_sum += *data;
+					data += pixelsize;
+				}
 			}
+			else {
+				for (uint32_t x = x0; x < x1; x++) {
+					line_sum += st->video_get_intensity(data);
+					data += pixelsize;
+				}
+			}
+
+			if (i & 1)
+				sum += line_sum;
+			else
+				sum -= line_sum;
 		}
 	}
 
-	// blog(LOG_INFO, "st_raw_video-plot: %.03f %f", (frame->timestamp - st->start_ts) * 1e-9, (double)sum);
+	// blog(LOG_INFO, "st_raw_video-plot: %.03f %f", (frame->timestamp - st->start_ts) * 1e-9, (double)sum / (255.0 * M_PI * sq(st->qr_corners[0].r)));
 
 	if (st->qr_data.valid && st->video_level_prev < 0 && sum > 0) {
 		uint64_t t = frame->timestamp - st->video_level_prev_ts;
