@@ -1,4 +1,4 @@
-# OBS Audio Video Sync Dock
+# Audio Video Sync Dock plugin for OBS Studio
 
 ## Introduction
 
