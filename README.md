@@ -11,7 +11,7 @@ This is an OBS Studio plugin to measure latency between audio and video.
 
    | Video file | Video frame rate | Supported display frame rate |
    | ---------- | ----------------:| --------------------- |
-   | [sync-pattern-6000.mp4](https://norihiro.github.io/obs-audio-video-sync-dock/sync-pattern-6000.mp4) | 60 FPS    | 30 FPS, 60 FPS, or 120 FPS |
+   | [sync-pattern-6000.mp4](https://norihiro.github.io/obs-audio-video-sync-dock/sync-pattern-6000.mp4) | 60 FPS    | 30 FPS, 60 FPS, or 120 FPS (iPhone) |
    | [sync-pattern-5994.mp4](https://norihiro.github.io/obs-audio-video-sync-dock/sync-pattern-5994.mp4) | 59.94 FPS | 29.97 FPS, 59.94 FPS, or 119.88 FPS |
    | [sync-pattern-5000.mp4](https://norihiro.github.io/obs-audio-video-sync-dock/sync-pattern-5000.mp4) | 50 FPS    | 25 FPS or 50 FPS (PAL) |
    | [sync-pattern-2400.mp4](https://norihiro.github.io/obs-audio-video-sync-dock/sync-pattern-2400.mp4) | 24 FPS    | 24 FPS or 48 FPS |
