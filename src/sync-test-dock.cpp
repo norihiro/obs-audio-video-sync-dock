@@ -191,9 +191,9 @@ void SyncTestDock::on_video_marker_found(struct video_marker_found_s data)
 	last_video_ix = index;
 	received_video_index_max = data.qr_data.index_max;
 	received_video_ix++;
-	frequencyDisplay->setText(QString("%1 Hz").arg(data.qr_data.f));
+	frequencyDisplay->setText(QStringLiteral("%1 Hz").arg(data.qr_data.f));
 	int missed = missed_video_ix * 100 / (received_video_ix + missed_video_ix);
-	videoIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));
+	videoIndexDisplay->setText(QStringLiteral("%1 (%2% missed)").arg(index).arg(missed));
 }
 
 void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
@@ -204,14 +204,14 @@ void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
 	received_audio_index_max = data.index_max;
 	received_audio_ix++;
 	int missed = missed_audio_ix * 100 / (received_audio_ix + missed_audio_ix);
-	audioIndexDisplay->setText(QString("%1 (%2% missed)").arg(index).arg(missed));
+	audioIndexDisplay->setText(QStringLiteral("%1 (%2% missed)").arg(index).arg(missed));
 }
 
 void SyncTestDock::on_sync_found(uint64_t video_ts, uint64_t audio_ts, int index)
 {
 	int64_t ts = (int64_t)audio_ts - (int64_t)video_ts;
-	latencyDisplay->setText(QString("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
-	indexDisplay->setText(QString("%1").arg(index));
+	latencyDisplay->setText(QStringLiteral("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
+	indexDisplay->setText(QStringLiteral("%1").arg(index));
 	if (ts > 0)
 		latencyPolarity->setText(obs_module_text("Display.Polarity.Positive"));
 	else if (ts < 0)
