@@ -43,9 +43,11 @@ SyncTestDock::SyncTestDock(QWidget *parent) : QFrame(parent)
 
 	QLabel *label;
 	label = new QLabel(obs_module_text("Label.Latency"), this);
+	label->setProperty("class", "text-large");
 	topLayout->addWidget(label, 0, 0);
 
 	latencyDisplay = new QLabel("-", this);
+	latencyDisplay->setProperty("class", "text-large");
 	topLayout->addWidget(latencyDisplay, 0, 1);
 
 	label = new QLabel(obs_module_text("Label.Index"), this);
