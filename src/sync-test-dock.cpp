@@ -37,6 +37,8 @@ SyncTestDock::SyncTestDock(QWidget *parent) : QFrame(parent)
 	QVBoxLayout *mainLayout = new QVBoxLayout();
 	QGridLayout *topLayout = new QGridLayout();
 
+	int y = 0;
+
 	startButton = new QPushButton(obs_module_text("Button.Start"), this);
 	mainLayout->addWidget(startButton);
 	connect(startButton, &QPushButton::clicked, this, &SyncTestDock::on_start_stop);
@@ -44,35 +46,38 @@ SyncTestDock::SyncTestDock(QWidget *parent) : QFrame(parent)
 	QLabel *label;
 	label = new QLabel(obs_module_text("Label.Latency"), this);
 	label->setProperty("class", "text-large");
-	topLayout->addWidget(label, 0, 0);
+	topLayout->addWidget(label, y, 0);
 
 	latencyDisplay = new QLabel("-", this);
 	latencyDisplay->setProperty("class", "text-large");
-	topLayout->addWidget(latencyDisplay, 0, 1);
+	topLayout->addWidget(latencyDisplay, y++, 1);
+
+	latencyPolarity = new QLabel("-", this);
+	topLayout->addWidget(latencyPolarity, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.Index"), this);
-	topLayout->addWidget(label, 1, 0);
+	topLayout->addWidget(label, y, 0);
 
 	indexDisplay = new QLabel("-", this);
-	topLayout->addWidget(indexDisplay, 1, 1);
+	topLayout->addWidget(indexDisplay, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.Frequency"), this);
-	topLayout->addWidget(label, 2, 0);
+	topLayout->addWidget(label, y, 0);
 
 	frequencyDisplay = new QLabel("-", this);
-	topLayout->addWidget(frequencyDisplay, 2, 1);
+	topLayout->addWidget(frequencyDisplay, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.VideoIndex"), this);
-	topLayout->addWidget(label, 3, 0);
+	topLayout->addWidget(label, y, 0);
 
 	videoIndexDisplay = new QLabel("-", this);
-	topLayout->addWidget(videoIndexDisplay, 3, 1);
+	topLayout->addWidget(videoIndexDisplay, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.AudioIndex"), this);
-	topLayout->addWidget(label, 4, 0);
+	topLayout->addWidget(label, y, 0);
 
 	audioIndexDisplay = new QLabel("-", this);
-	topLayout->addWidget(audioIndexDisplay, 4, 1);
+	topLayout->addWidget(audioIndexDisplay, y++, 1);
 
 	mainLayout->addLayout(topLayout);
 	setLayout(mainLayout);
@@ -207,4 +212,8 @@ void SyncTestDock::on_sync_found(uint64_t video_ts, uint64_t audio_ts, int index
 	int64_t ts = (int64_t)audio_ts - (int64_t)video_ts;
 	latencyDisplay->setText(QString("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
 	indexDisplay->setText(QString("%1").arg(index));
+	if (ts > 0)
+		latencyPolarity->setText(obs_module_text("Display.Polarity.Positive"));
+	else if (ts < 0)
+		latencyPolarity->setText(obs_module_text("Display.Polarity.Negative"));
 }

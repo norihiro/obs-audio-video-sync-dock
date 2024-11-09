@@ -16,6 +16,7 @@ private:
 	QPushButton *startButton = nullptr;
 
 	QLabel *latencyDisplay = nullptr;
+	QLabel *latencyPolarity = nullptr;
 	QLabel *indexDisplay = nullptr;
 	QLabel *frequencyDisplay = nullptr;
 	QLabel *videoIndexDisplay = nullptr;
