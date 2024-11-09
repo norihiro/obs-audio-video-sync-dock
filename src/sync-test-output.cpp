@@ -300,11 +300,31 @@ static inline uint32_t sqrt_u32(uint32_t x)
 	return r;
 }
 
-static inline int qrcode_length(const struct quirc_point *corners)
+static inline int qrcode_length(const struct corner_type *cc)
 {
-	auto l01 = hypotf((float)(corners[0].x - corners[1].x), (float)(corners[0].y - corners[1].y));
-	auto l03 = hypotf((float)(corners[0].x - corners[3].x), (float)(corners[0].y - corners[3].y));
-	return (int)((l01 + l03) / 2.0f);
+	auto l02 = hypotf((float)((int)cc[0].x - (int)cc[2].x), (float)((int)cc[0].y - (int)cc[2].y));
+	auto l13 = hypotf((float)((int)cc[1].x - (int)cc[3].x), (float)((int)cc[1].y - (int)cc[3].y));
+	return (int)((l02 + l13) * (float)(M_SQRT1_2 / 2.0f));
+}
+
+static inline void adjust_corners(struct corner_type *cc)
+{
+	int cx = 0, cy = 0;
+	for (int i = 0; i < 4; i++) {
+		cx += cc[i].x;
+		cy += cc[i].y;
+	}
+
+	cx /= 4;
+	cy /= 4;
+	int r = qrcode_length(cc) / 4;
+
+	// Move (x, y) to center side so that the circles will cover the pattern.
+	for (int i = 0; i < 4; i++) {
+		cc[i].x = (cc[i].x * 15 + cx * 9) / 24;
+		cc[i].y = (cc[i].y * 15 + cy * 9) / 24;
+		cc[i].r = r;
+	}
 }
 
 static void signal_qrcode_found(obs_output_t *ctx, uint64_t timestamp, const struct corner_type *corners)
@@ -371,18 +391,18 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 		if (err)
 			continue;
 
-		int r = qrcode_length(code.corners) * 3 / 8;
+		data.payload[QUIRC_MAX_PAYLOAD - 1] = 0;
+		if (!st->qr_data.decode((char *)data.payload))
+			continue;
+
 		for (int j = 0; j < 4; j++) {
 			st->qr_corners[j].x = code.corners[j].x * st->qr_step;
 			st->qr_corners[j].y = code.corners[j].y * st->qr_step;
-			st->qr_corners[j].r = r;
 		}
 
 		signal_qrcode_found(st->context, frame->timestamp - st->start_ts, st->qr_corners);
 
-		data.payload[QUIRC_MAX_PAYLOAD - 1] = 0;
-		if (!st->qr_data.decode((char *)data.payload))
-			continue;
+		adjust_corners(st->qr_corners);
 
 		if (st->qr_data.f > 0 && st->qr_data.c > 0) {
 			std::unique_lock<std::mutex> lock(st->mutex);
