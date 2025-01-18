@@ -469,7 +469,7 @@ static void st_raw_video_find_marker(struct sync_test_output *st, struct video_d
 	// blog(LOG_INFO, "st_raw_video-plot: %.03f %f", (frame->timestamp - st->start_ts) * 1e-9, (double)sum / (255.0 * M_PI * sq(st->qr_corners[0].r)));
 
 	if (st->qr_data.valid && st->video_level_prev < 0 && sum >= 0) {
-		/* Calcurate the time half frame later than the zero-cross of `sum`. */
+		/* Calculate the time half frame later than the zero-cross of `sum`. */
 		uint64_t t = frame->timestamp - st->video_level_prev_ts;
 		uint64_t add = util_mul_div64(t, sum - st->video_level_prev * 3, (sum - st->video_level_prev) * 2);
 		video_marker_found(st, st->video_level_prev_ts + add, (float)(sum - st->video_level_prev));
