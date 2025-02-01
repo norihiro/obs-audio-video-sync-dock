@@ -161,7 +161,10 @@ void SyncTestDock::on_start_stop()
 		signal_handler_connect(sh, "audio_marker_found", cb_audio_marker_found, this);
 		signal_handler_connect(sh, "sync_found", cb_sync_found, this);
 
-		obs_output_start(o);
+		bool success = obs_output_start(o);
+
+		if (!success)
+			latencyPolarity->setText(obs_module_text("Display.Polarity.Failure"));
 
 		if (startButton)
 			startButton->setText(obs_module_text("Button.Stop"));
