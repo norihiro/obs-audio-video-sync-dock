@@ -143,7 +143,7 @@ static void cb_sync_found(void *param, calldata_t *cd)
 void SyncTestDock::on_start_stop()
 {
 	if (!sync_test) /* request to start */ {
-		OBSOutputAutoRelease o = obs_output_create(ID_PREFIX "output", "sync-test-output", nullptr, nullptr);
+		OBSOutputAutoRelease o = obs_output_create(OUTPUT_ID, "sync-test-output", nullptr, nullptr);
 		if (!o) {
 			blog(LOG_ERROR, "Failed to create sync-test-output.");
 			return;
