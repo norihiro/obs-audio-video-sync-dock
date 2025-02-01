@@ -388,6 +388,11 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 		struct quirc_data data;
 		quirc_extract(qr, i, &code);
 		auto err = quirc_decode(&code, &data);
+		if (err == QUIRC_ERROR_DATA_ECC) {
+			quirc_flip(&code);
+			err = quirc_decode(&code, &data);
+		}
+
 		if (err)
 			continue;
 
