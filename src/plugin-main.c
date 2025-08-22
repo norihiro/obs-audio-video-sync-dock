@@ -40,7 +40,11 @@ bool obs_frontend_add_dock_by_id_compat(const char *id, const char *title, void 
 
 bool obs_module_load(void)
 {
+#if LIBOBS_API_VER < MAKE_SEMANTIC_VERSION(31, 0, 0)
 	config_t *cfg = obs_frontend_get_global_config();
+#else
+	config_t *cfg = obs_frontend_get_app_config();
+#endif
 	bool list_source = cfg && config_get_bool(cfg, CONFIG_SECTION_NAME, "ListMonitor");
 
 	register_sync_test_output();
