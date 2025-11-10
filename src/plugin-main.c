@@ -59,8 +59,3 @@ bool obs_module_load(void)
 	blog(LOG_INFO, "quirc (version %s)", quirc_version());
 	return true;
 }
-
-void obs_module_unload()
-{
-	blog(LOG_INFO, "plugin unloaded");
-}
