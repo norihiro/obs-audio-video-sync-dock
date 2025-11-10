@@ -4,10 +4,7 @@
 #define MyAppURL "@PLUGIN_URL@"
 
 [Setup]
-; NOTE: The value of AppId uniquely identifies this application.
-; Do not use the same AppId value in installers for other applications.
-; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{C379B62A-A937-4808-B143-A4D4D454A2CC}
+AppId={{@WIN_INSTALLER_UUID@}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}

@@ -11,6 +11,7 @@ set(ID_PREFIX "net.nagater.obs-audio-video-sync-dock.")
 set(MACOS_PACKAGE_UUID "10FED78A-2D7F-494B-A7B0-780280CB09B8")
 set(MACOS_INSTALLER_UUID "C0ADE8B3-B56D-4328-BEAF-0A967FED280B")
 set(PLUGIN_URL "https://github.com/norihiro/obs-audio-video-sync-dock/")
+set(WIN_INSTALLER_UUID "C379B62A-A937-4808-B143-A4D4D454A2CC")
 
 # Replace `me@contoso.com` with the maintainer email address you want to put in Linux packages
 set(LINUX_MAINTAINER_EMAIL "norihiro@nagater.net")
