@@ -4,8 +4,6 @@ project(obs-audio-video-sync-dock VERSION 0.1.1)
 
 set(PLUGIN_AUTHOR "Norihiro Kamae")
 
-# Replace `com.example.obs-plugin-template` with a unique Bundle ID for macOS releases
-# (used both in the installer and when submitting the installer for notarization)
 set(MACOS_BUNDLEID "net.nagater.obs-audio-video-sync-dock")
 set(ID_PREFIX "net.nagater.obs-audio-video-sync-dock.")
 set(MACOS_PACKAGE_UUID "10FED78A-2D7F-494B-A7B0-780280CB09B8")
@@ -13,10 +11,7 @@ set(MACOS_INSTALLER_UUID "C0ADE8B3-B56D-4328-BEAF-0A967FED280B")
 set(PLUGIN_URL "https://github.com/norihiro/obs-audio-video-sync-dock/")
 set(WIN_INSTALLER_UUID "C379B62A-A937-4808-B143-A4D4D454A2CC")
 
-# Replace `me@contoso.com` with the maintainer email address you want to put in Linux packages
 set(LINUX_MAINTAINER_EMAIL "norihiro@nagater.net")
-
-# TAKE NOTE: No need to edit things past this point
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
@@ -87,8 +82,9 @@ if(OS_LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra)
 	target_link_options(${PROJECT_NAME} PRIVATE -Wl,-z,defs)
 	target_link_options(${PROJECT_NAME} PRIVATE -Wl,--unresolved-symbols=report-all)
+
 	if(ENABLE_COVERAGE)
-		target_compile_options(${PROJECT_NAME} PRIVATE -coverage)
+		target_compile_options(${PROJECT_NAME} PRIVATE -coverage -fprofile-update=atomic)
 		target_link_options(${PROJECT_NAME} PRIVATE -coverage)
 	endif()
 

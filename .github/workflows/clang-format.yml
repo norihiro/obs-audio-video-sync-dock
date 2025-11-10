@@ -2,21 +2,21 @@ name: Clang Format Check
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
   clang:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Clang
       run: |
-        sudo apt-get install -y clang-format-17
-        clang-format -i -fallback-style=none $(git ls-files | grep -v 'deps/libavfilter/' | grep '\.\(c\|h\)$')
+        sudo apt-get install -y clang-format
+        clang-format -i -fallback-style=none $(git ls-files | grep '\.\(c\|h\|cpp\|hpp\|cc\|hh\)$')
 
     - name: Check
       # Build your program with the given configuration
