@@ -38,6 +38,11 @@ bool obs_frontend_add_dock_by_id_compat(const char *id, const char *title, void 
 #define obs_frontend_add_dock_by_id obs_frontend_add_dock_by_id_compat
 #endif
 
+const char *obs_module_name(void)
+{
+	return obs_module_text("Module.Name");
+}
+
 bool obs_module_load(void)
 {
 #if LIBOBS_API_VER < MAKE_SEMANTIC_VERSION(31, 0, 0)
