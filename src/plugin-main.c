@@ -54,8 +54,12 @@ bool obs_module_load(void)
 
 	register_sync_test_output();
 	register_sync_test_monitor(list_source);
-	obs_frontend_add_dock_by_id(ID_PREFIX ".main", obs_module_text("SyncTestDock.Title"), create_sync_test_dock());
 	blog(LOG_INFO, "plugin loaded (version %s)", PLUGIN_VERSION);
 	blog(LOG_INFO, "quirc (version %s)", quirc_version());
 	return true;
+}
+
+void obs_module_post_load(void)
+{
+	obs_frontend_add_dock_by_id(ID_PREFIX ".main", obs_module_text("SyncTestDock.Title"), create_sync_test_dock());
 }
