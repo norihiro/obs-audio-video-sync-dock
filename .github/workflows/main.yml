@@ -164,6 +164,7 @@ jobs:
           . build/ci/ci_includes.generated.sh
           cmake --install build --config RelWithDebInfo --prefix=release
           cp LICENSE release/${PLUGIN_NAME}.plugin/Contents/Resources/LICENSE-$PLUGIN_NAME
+          cp deps/quirc/LICENSE release/${PLUGIN_NAME}.plugin/Contents/Resources/LICENSE-quirc
 
       - name: Codesign
         if: ${{ github.event_name != 'pull_request' && steps.setup.outputs.haveCodesignIdent == 'true' }}
