@@ -45,6 +45,7 @@ endif()
 #   versions < 5.15)
 #
 macro(find_qt)
+  set(oneValueArgs "")
   set(multiValueArgs COMPONENTS COMPONENTS_WIN COMPONENTS_MAC COMPONENTS_LINUX)
   cmake_parse_arguments(FIND_QT "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
