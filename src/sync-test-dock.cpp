@@ -49,34 +49,40 @@ SyncTestDock::SyncTestDock(QWidget *parent) : QFrame(parent)
 	topLayout->addWidget(label, y, 0);
 
 	latencyDisplay = new QLabel("-", this);
+	latencyDisplay->setObjectName("latencyDisplay");
 	latencyDisplay->setProperty("class", "text-large");
 	topLayout->addWidget(latencyDisplay, y++, 1);
 
 	latencyPolarity = new QLabel("-", this);
+	latencyPolarity->setObjectName("latencyPolarity");
 	topLayout->addWidget(latencyPolarity, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.Index"), this);
 	topLayout->addWidget(label, y, 0);
 
 	indexDisplay = new QLabel("-", this);
+	indexDisplay->setObjectName("indexDisplay");
 	topLayout->addWidget(indexDisplay, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.Frequency"), this);
 	topLayout->addWidget(label, y, 0);
 
 	frequencyDisplay = new QLabel("-", this);
+	frequencyDisplay->setObjectName("frequencyDisplay");
 	topLayout->addWidget(frequencyDisplay, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.VideoIndex"), this);
 	topLayout->addWidget(label, y, 0);
 
 	videoIndexDisplay = new QLabel("-", this);
+	videoIndexDisplay->setObjectName("videoIndexDisplay");
 	topLayout->addWidget(videoIndexDisplay, y++, 1);
 
 	label = new QLabel(obs_module_text("Label.AudioIndex"), this);
 	topLayout->addWidget(label, y, 0);
 
 	audioIndexDisplay = new QLabel("-", this);
+	audioIndexDisplay->setObjectName("audioIndexDisplay");
 	topLayout->addWidget(audioIndexDisplay, y++, 1);
 
 	mainLayout->addLayout(topLayout);
