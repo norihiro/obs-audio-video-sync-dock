@@ -97,16 +97,8 @@ SyncTestDock::~SyncTestDock()
 	}
 }
 
-Q_DECLARE_METATYPE(uint64_t);
-Q_DECLARE_METATYPE(video_marker_found_s);
-Q_DECLARE_METATYPE(audio_marker_found_s);
-
 extern "C" QWidget *create_sync_test_dock()
 {
-	qRegisterMetaType<uint64_t>("uint64_t");
-	qRegisterMetaType<video_marker_found_s>("video_marker_found_s");
-	qRegisterMetaType<audio_marker_found_s>("audio_marker_found_s");
-
 	const auto main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	return static_cast<QWidget *>(new SyncTestDock(main_window));
 }
@@ -116,34 +108,34 @@ extern "C" QWidget *create_sync_test_dock()
 	if (!get_func(cd, #name, &name))  \
 		return;
 
-static void cb_video_marker_found(void *param, calldata_t *cd)
+void SyncTestDock::cb_video_marker_found(void *param, calldata_t *cd)
 {
 	auto *dock = (SyncTestDock *)param;
 
 	CD_TO_LOCAL(video_marker_found_s *, data, calldata_get_ptr);
+	video_marker_found_s found = *data;
 
-	QMetaObject::invokeMethod(dock, "on_video_marker_found", Q_ARG(video_marker_found_s, *data));
+	QMetaObject::invokeMethod(dock, [dock, found]() { dock->on_video_marker_found(found); });
 };
 
-static void cb_audio_marker_found(void *param, calldata_t *cd)
+void SyncTestDock::cb_audio_marker_found(void *param, calldata_t *cd)
 {
 	auto *dock = (SyncTestDock *)param;
 
 	CD_TO_LOCAL(audio_marker_found_s *, data, calldata_get_ptr);
+	audio_marker_found_s found = *data;
 
-	QMetaObject::invokeMethod(dock, "on_audio_marker_found", Q_ARG(audio_marker_found_s, *data));
+	QMetaObject::invokeMethod(dock, [dock, found]() { dock->on_audio_marker_found(found); });
 };
 
-static void cb_sync_found(void *param, calldata_t *cd)
+void SyncTestDock::cb_sync_found(void *param, calldata_t *cd)
 {
 	auto *dock = (SyncTestDock *)param;
 
-	CD_TO_LOCAL(long long, video_ts, calldata_get_int);
-	CD_TO_LOCAL(long long, audio_ts, calldata_get_int);
-	CD_TO_LOCAL(long long, index, calldata_get_int);
+	CD_TO_LOCAL(sync_index *, data, calldata_get_ptr);
+	sync_index found = *data;
 
-	QMetaObject::invokeMethod(dock, "on_sync_found", Q_ARG(uint64_t, video_ts), Q_ARG(uint64_t, audio_ts),
-				  Q_ARG(int, index));
+	QMetaObject::invokeMethod(dock, [dock, found]() { dock->on_sync_found(found); });
 }
 
 void SyncTestDock::on_start_stop()
@@ -216,11 +208,11 @@ void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
 	audioIndexDisplay->setText(QStringLiteral("%1 (%2% missed)").arg(index).arg(missed));
 }
 
-void SyncTestDock::on_sync_found(uint64_t video_ts, uint64_t audio_ts, int index)
+void SyncTestDock::on_sync_found(sync_index data)
 {
-	int64_t ts = (int64_t)audio_ts - (int64_t)video_ts;
+	int64_t ts = (int64_t)data.audio_ts - (int64_t)data.video_ts;
 	latencyDisplay->setText(QStringLiteral("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
-	indexDisplay->setText(QStringLiteral("%1").arg(index));
+	indexDisplay->setText(QStringLiteral("%1").arg(data.index));
 	if (ts > 0)
 		latencyPolarity->setText(obs_module_text("Display.Polarity.Positive"));
 	else if (ts < 0)

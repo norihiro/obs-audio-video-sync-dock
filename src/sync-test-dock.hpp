@@ -39,8 +39,11 @@ private:
 private:
 	void on_start_stop();
 
-private slots:
 	void on_video_marker_found(video_marker_found_s data);
 	void on_audio_marker_found(audio_marker_found_s data);
-	void on_sync_found(uint64_t video_ts, uint64_t audio_ts, int index);
+	void on_sync_found(sync_index data);
+
+	static void cb_video_marker_found(void *param, calldata_t *cd);
+	static void cb_audio_marker_found(void *param, calldata_t *cd);
+	static void cb_sync_found(void *param, calldata_t *cd);
 };

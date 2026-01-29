@@ -88,14 +88,6 @@ struct corner_type
 	uint32_t r = 0;
 };
 
-struct sync_index
-{
-	int index = -1;
-	uint64_t video_ts = 0;
-	uint64_t audio_ts = 0;
-	uint32_t index_max = 256;
-};
-
 struct sync_test_output
 {
 	obs_output_t *context;
@@ -159,7 +151,7 @@ static void *st_create(obs_data_t *, obs_output_t *output)
 		"void video_marker_found(ptr data)",
 		"void audio_marker_found(ptr data)",
 		"void qrcode_found(int timestamp, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3)",
-		"void sync_found(int index, int video_ts, int audio_ts, float score)",
+		"void sync_found(ptr data)",
 		NULL,
 	};
 	signal_handler_add_array(obs_output_get_signal_handler(output), signals);
@@ -490,15 +482,12 @@ static bool is_overlapped(uint32_t index, uint32_t index_max, uint32_t next_inde
 
 static void signal_sync_found(obs_output_t *ctx, const struct sync_index *si, double score)
 {
-	uint8_t stack[192];
+	uint8_t stack[64];
 	struct calldata cd;
 	calldata_init_fixed(&cd, stack, sizeof(stack));
 	auto *sh = obs_output_get_signal_handler(ctx);
 
-	calldata_set_int(&cd, "index", si->index);
-	calldata_set_int(&cd, "video_ts", (long long)si->video_ts);
-	calldata_set_int(&cd, "audio_ts", (long long)si->audio_ts);
-	calldata_set_float(&cd, "score", score);
+	calldata_set_ptr(&cd, "data", const_cast<sync_index *>(si));
 	signal_handler_signal(sh, "sync_found", &cd);
 }
 

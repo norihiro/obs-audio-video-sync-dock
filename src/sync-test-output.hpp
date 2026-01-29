@@ -102,3 +102,11 @@ struct audio_marker_found_s
 	float score;
 	uint32_t index_max;
 };
+
+struct sync_index
+{
+	int index = -1;
+	uint64_t video_ts = 0;
+	uint64_t audio_ts = 0;
+	uint32_t index_max = 256;
+};
