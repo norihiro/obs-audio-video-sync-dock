@@ -22,6 +22,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include <deque>
 #include <list>
 #include <stdlib.h>
+#include <algorithm>
 #include <mutex>
 #include <complex>
 #include "quirc.h"
@@ -170,7 +171,8 @@ static void st_destroy(void *data)
 
 static uint8_t get_intensity_10le(const uint8_t *data)
 {
-	return (data[0] >> 2) | (data[1] << 6);
+	uint16_t v = (data[0] >> 2) | (data[1] << 6);
+	return (uint8_t)std::min<uint16_t>(v, 0xFF);
 }
 
 static bool st_start(void *data)
@@ -210,10 +212,14 @@ static bool st_start(void *data)
 		st->video_get_intensity = nullptr;
 		break;
 	case VIDEO_FORMAT_I010:
-	case VIDEO_FORMAT_P010:
 		st->video_pixelsize = 2;
 		st->video_pixeloffset = 0;
 		st->video_get_intensity = get_intensity_10le;
+		break;
+	case VIDEO_FORMAT_P010:
+		st->video_pixelsize = 2;
+		st->video_pixeloffset = 1;
+		st->video_get_intensity = nullptr;
 		break;
 #if LIBOBS_API_VER >= MAKE_SEMANTIC_VERSION(29, 1, 0)
 	case VIDEO_FORMAT_P216:
