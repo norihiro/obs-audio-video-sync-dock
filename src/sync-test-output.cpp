@@ -480,7 +480,7 @@ static bool is_overlapped(uint32_t index, uint32_t index_max, uint32_t next_inde
 	return index_max && ((index_max + next_index - index) % index_max) > index_max / 2;
 }
 
-static void signal_sync_found(obs_output_t *ctx, const struct sync_index *si, double score)
+static void signal_sync_found(obs_output_t *ctx, const struct sync_index *si)
 {
 	uint8_t stack[64];
 	struct calldata cd;
@@ -513,7 +513,7 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 			if (is_video)
 				it->index_max = index_max;
 
-			signal_sync_found(st->context, &*it, 0.0);
+			signal_sync_found(st->context, &*it);
 
 			/* Do not erase `it` so that `identify_audio_index_max` can refer the last found pattern.
 			 * Current `it` will be erased at the next call of this function. */
