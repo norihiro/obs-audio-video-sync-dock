@@ -442,7 +442,7 @@ static void st_raw_video_find_marker(struct sync_test_output *st, struct video_d
 		for (uint32_t y = y0; y < y1; y++) {
 			uint32_t dx = sqrt_u32(sq_r - sq(diff_u32(y, c.y)));
 			uint32_t x0 = c.x > dx ? c.x - dx : 0;
-			uint32_t x1 = std::min(c.x + dx, st->video_height);
+			uint32_t x1 = std::min(c.x + dx, st->video_width);
 
 			const uint8_t *data =
 				linedata + frame->linesize[0] * y + st->video_pixeloffset + st->video_pixelsize * x0;
