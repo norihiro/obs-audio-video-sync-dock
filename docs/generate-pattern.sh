@@ -25,3 +25,4 @@ mkdir -p "$outdir"
 "$videogen" --vr 50         --ar 48000 'q=4,f=884,c=2' -o "$outdir/sync-pattern-5000.mp4"
 "$videogen" --vr 24         --ar 48000 'q=2,f=884,c=2' -o "$outdir/sync-pattern-2400.mp4"
 "$videogen" --vr 24000/1001 --ar 48000 'q=2,f=884,c=2' -o "$outdir/sync-pattern-2398.mp4"
+"$videogen" --vr 30         --ar 44100 'q=4,f=884,c=2' -o "$outdir/sync-pattern-3000-small.mp4" --size 320x180
