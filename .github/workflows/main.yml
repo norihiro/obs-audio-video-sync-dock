@@ -3,16 +3,17 @@ name: Plugin Build
 on:
   push:
     paths-ignore:
-      - '**.md'
+      - "**.md"
     branches:
       - main
     tags:
-      - '*'
+      - "*"
   pull_request:
     paths-ignore:
-      - '**.md'
+      - "**.md"
     branches:
       - main
+  workflow_dispatch:
 
 env:
   artifactName: ${{ contains(github.ref_name, '/') && 'artifact' || github.ref_name }}
@@ -26,11 +27,11 @@ jobs:
       matrix:
         include:
           - obs: 30
-            ubuntu: 'ubuntu-22.04'
+            ubuntu: "ubuntu-22.04"
           - obs: 31
-            ubuntu: 'ubuntu-24.04'
+            ubuntu: "ubuntu-24.04"
           - obs: 32
-            ubuntu: 'ubuntu-24.04'
+            ubuntu: "ubuntu-24.04"
     defaults:
       run:
         shell: bash
@@ -64,7 +65,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.artifactName }}-linux-obs${{ matrix.obs }}-${{ matrix.ubuntu }}
-          path: '${{ env.FILE_NAME }}'
+          path: "${{ env.FILE_NAME }}"
       - name: Check package
         run: |
           . build/ci/ci_includes.generated.sh
@@ -83,7 +84,7 @@ jobs:
       fail-fast: false
       matrix:
         obs: [30, 31, 32]
-        arch: ['universal']
+        arch: ["universal"]
     defaults:
       run:
         shell: bash
@@ -223,8 +224,8 @@ jobs:
         obs: [30, 31, 32]
         arch: [x64]
     env:
-      visualStudio: 'Visual Studio 17 2022'
-      Configuration: 'RelWithDebInfo'
+      visualStudio: "Visual Studio 17 2022"
+      Configuration: "RelWithDebInfo"
     defaults:
       run:
         shell: pwsh

@@ -110,3 +110,13 @@ struct sync_index
 	uint64_t audio_ts = 0;
 	uint32_t index_max = 256;
 };
+
+struct frame_drop_event_s
+{
+	uint64_t timestamp;
+	int expected_index;
+	int received_index;
+	int dropped_count;
+	uint64_t total_received;
+	uint64_t total_dropped;
+};
