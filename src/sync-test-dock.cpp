@@ -18,6 +18,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 */
 
 #include <obs-module.h>
+#include <inttypes.h>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QTimer>
@@ -172,6 +173,9 @@ void SyncTestDock::on_start_stop()
 		audio_index_max = 256;
 		total_frame_drops = 0;
 		total_frames_seen = 0;
+		last_summary_ts = 0;
+		sync_count_since_summary = 0;
+		latency_sum_since_summary = 0.0;
 
 		auto *sh = obs_output_get_signal_handler(o);
 		signal_handler_connect(sh, "video_marker_found", cb_video_marker_found, this);
@@ -235,12 +239,35 @@ void SyncTestDock::on_audio_marker_found(struct audio_marker_found_s data)
 void SyncTestDock::on_sync_found(sync_index data)
 {
 	int64_t ts = (int64_t)data.audio_ts - (int64_t)data.video_ts;
-	latencyDisplay->setText(QStringLiteral("%1 ms").arg(ts * 1e-6, 2, 'f', 1));
+	double latency_ms = ts * 1e-6;
+	latencyDisplay->setText(QStringLiteral("%1 ms").arg(latency_ms, 2, 'f', 1));
 	indexDisplay->setText(QStringLiteral("%1").arg(data.index));
 	if (ts > 0)
 		latencyPolarity->setText(obs_module_text("Display.Polarity.Positive"));
 	else if (ts < 0)
 		latencyPolarity->setText(obs_module_text("Display.Polarity.Negative"));
+
+	blog(LOG_DEBUG, "[sync-dock] latency=%.1f ms  index=%d  video_ts=%llu  audio_ts=%llu",
+	     latency_ms, data.index,
+	     (unsigned long long)data.video_ts,
+	     (unsigned long long)data.audio_ts);
+
+	sync_count_since_summary++;
+	latency_sum_since_summary += latency_ms;
+
+	if (last_summary_ts == 0)
+		last_summary_ts = data.video_ts;
+
+	if (data.video_ts - last_summary_ts >= 10000000000ULL) {
+		double avg_latency = latency_sum_since_summary / sync_count_since_summary;
+		int64_t total = total_frames_seen + total_frame_drops;
+		double drop_rate = total > 0 ? (double)total_frame_drops * 100.0 / (double)total : 0.0;
+		blog(LOG_INFO, "[sync-dock] avg_latency=%.1f ms  measurements=%d  total_frames=%" PRId64 "  total_drops=%" PRId64 "  drop_rate=%.1f%%",
+		     avg_latency, sync_count_since_summary, total_frames_seen, total_frame_drops, drop_rate);
+		sync_count_since_summary = 0;
+		latency_sum_since_summary = 0.0;
+		last_summary_ts = data.video_ts;
+	}
 }
 
 void SyncTestDock::on_frame_drop_detected(frame_drop_event_s data)
@@ -252,4 +279,8 @@ void SyncTestDock::on_frame_drop_detected(frame_drop_event_s data)
 	if (total > 0)
 		drop_rate = (double)total_frame_drops * 100.0 / (double)total;
 	frameDropDisplay->setText(QStringLiteral("%1 dropped (%2%)").arg(total_frame_drops).arg(drop_rate, 0, 'f', 1));
+
+	blog(LOG_DEBUG, "[sync-dock] frame_drop: dropped=%d expected_idx=%d received_idx=%d total_dropped=%" PRId64 " total_received=%" PRId64 " drop_rate=%.1f%%",
+	     data.dropped_count, data.expected_index, data.received_index,
+	     total_frame_drops, total_frames_seen, drop_rate);
 }

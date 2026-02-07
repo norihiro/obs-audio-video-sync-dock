@@ -109,6 +109,7 @@ struct sync_index
 	uint64_t video_ts = 0;
 	uint64_t audio_ts = 0;
 	uint32_t index_max = 256;
+	bool matched = false;
 };
 
 struct frame_drop_event_s

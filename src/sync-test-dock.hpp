@@ -39,6 +39,10 @@ private:
 	int64_t total_frame_drops = 0;
 	int64_t total_frames_seen = 0;
 
+	uint64_t last_summary_ts = 0;
+	int sync_count_since_summary = 0;
+	double latency_sum_since_summary = 0.0;
+
 private:
 	void on_start_stop();
 

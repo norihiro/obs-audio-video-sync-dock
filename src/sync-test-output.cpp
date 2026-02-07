@@ -132,6 +132,10 @@ struct sync_test_output
 	uint32_t f_last = 0;
 	uint32_t c_last = 0;
 
+	/* Sync latency baseline for stale match rejection */
+	int64_t last_sync_latency_ns = 0;
+	bool has_sync_baseline = false;
+
 	/* Frame-drop detection state */
 	int32_t last_qr_index = -1;
 	uint32_t last_qr_index_max = 256;
@@ -270,6 +274,10 @@ static bool st_start(void *data)
 
 	st->audio_sample_rate = audio_output_get_sample_rate(audio);
 	st->audio_channels = audio_output_get_channels(audio);
+
+	st->has_sync_baseline = false;
+	st->last_sync_latency_ns = 0;
+	st->sync_indices.clear();
 
 	obs_output_begin_data_capture(st->context, OBS_OUTPUT_VIDEO | OBS_OUTPUT_AUDIO);
 
@@ -570,10 +578,32 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 			continue;
 		}
 
+		/* Skip already-matched entries (kept for identify_audio_index_max) */
+		if (it->matched) {
+			it++;
+			continue;
+		}
+
 		if ((it->video_ts && !is_video) || (it->audio_ts && is_video)) {
 			(is_video ? it->video_ts : it->audio_ts) = ts;
 			if (is_video)
 				it->index_max = index_max;
+
+			/* Reject stale matches: after video dropout, old audio entries
+			 * can match new video events producing wrong latency. Check that
+			 * the new latency doesn't deviate too far from the baseline. */
+			int64_t latency_ns = (int64_t)it->audio_ts - (int64_t)it->video_ts;
+			if (st->has_sync_baseline) {
+				int64_t deviation = latency_ns - st->last_sync_latency_ns;
+				if (deviation > 1000000000LL || deviation < -1000000000LL) {
+					st->sync_indices.erase(it);
+					break;
+				}
+			}
+
+			st->last_sync_latency_ns = latency_ns;
+			st->has_sync_baseline = true;
+			it->matched = true;
 
 			signal_sync_found(st->context, &*it);
 
