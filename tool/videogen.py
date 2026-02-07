@@ -225,6 +225,9 @@ class Pattern:
         '''
         return self.q * 3
 
+    def _audio_n_center(self):
+        return self.ctx.ar * (self.q * 2) * self.ctx.vr[1] // self.ctx.vr[0]
+
     def audio_frames(self, start_offset=0):
         '''
         Returns audio frame in bytes
@@ -238,7 +241,7 @@ class Pattern:
         data = data << 4 | crc4(data, n_bit)
         n_bit += 4
 
-        n_center = ctx.ar * (self.q * 2) * ctx.vr[1] // ctx.vr[0]
+        n_center = self._audio_n_center()
         n_pattern = ctx.audio_symbols() * c * ctx.ar // f
         n_blank_begin = n_center - ctx.audio_symbols_before_vsync() * c * ctx.ar // f
         if n_blank_begin < start_offset:
@@ -279,6 +282,35 @@ class Pattern:
             i += 1
         self.i += 1
         return buffer
+
+
+class FrameDropPattern(Pattern):
+    '''
+    Pattern that generates a QR code on every single frame for frame-drop detection.
+    Inherits audio sync marker generation from Pattern (q=1).
+    '''
+    def _prepare(self, settings):
+        settings = 'q=1,' + settings
+        super()._prepare(settings)
+        if self.c < 2:
+            self.c = 2
+
+    def _audio_n_center(self):
+        return 0
+
+    def video_frames(self):
+        '''
+        Returns a list of video frame files (one QR frame per call, no checkerboards)
+        '''
+        qr_filename = self._gen_qrcode(self.i & 0xFF)
+        self.i += 1
+        return [qr_filename]
+
+    def video_frame_length(self):
+        '''
+        Returns the number of the video frames
+        '''
+        return 1
 
 
 def _simplify_fraction(f):
@@ -427,6 +459,8 @@ def _main():
                         help='Generate rectangle audio')
     parser.add_argument('--smooth', action='store', type=float, default=0.25,
                         help='Symbol length to make the audio smooth')
+    parser.add_argument('--frame-drop', action='store_true', default=False,
+                        help='Generate frame-drop detection video (QR code on every frame)')
     parser.add_argument('-o', '--output', action='store', default='output.mp4',
                         help='Output file name')
     parser.add_argument('patterns', nargs='+', help='Pattern definition of synchronization marker')
@@ -437,8 +471,9 @@ def _main():
     ctx.audio_rectangle = args.rectangle
     ctx.audio_continuous = args.smooth
     gen = VideoGen(ctx)
+    PatternClass = FrameDropPattern if args.frame_drop else Pattern
     for p in args.patterns:
-        p = Pattern(ctx, p)
+        p = PatternClass(ctx, p)
         gen.patterns.append(p)
     gen.prepare()
     if not args.dryrun:

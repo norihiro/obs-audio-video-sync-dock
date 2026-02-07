@@ -132,6 +132,17 @@ struct sync_test_output
 	uint32_t f_last = 0;
 	uint32_t c_last = 0;
 
+	/* Sync latency baseline for stale match rejection */
+	int64_t last_sync_latency_ns = 0;
+	bool has_sync_baseline = false;
+
+	/* Frame-drop detection state */
+	int32_t last_qr_index = -1;
+	uint32_t last_qr_index_max = 256;
+	uint64_t total_frames_received = 0;
+	uint64_t total_frames_dropped = 0;
+	uint64_t frames_without_qr = 0;
+
 	~sync_test_output()
 	{
 		if (qr)
@@ -153,6 +164,7 @@ static void *st_create(obs_data_t *, obs_output_t *output)
 		"void audio_marker_found(ptr data)",
 		"void qrcode_found(int timestamp, int x0, int y0, int x1, int y1, int x2, int y2, int x3, int y3)",
 		"void sync_found(ptr data)",
+		"void frame_drop_detected(ptr data)",
 		NULL,
 	};
 	signal_handler_add_array(obs_output_get_signal_handler(output), signals);
@@ -262,6 +274,10 @@ static bool st_start(void *data)
 
 	st->audio_sample_rate = audio_output_get_sample_rate(audio);
 	st->audio_channels = audio_output_get_channels(audio);
+
+	st->has_sync_baseline = false;
+	st->last_sync_latency_ns = 0;
+	st->sync_indices.clear();
 
 	obs_output_begin_data_capture(st->context, OBS_OUTPUT_VIDEO | OBS_OUTPUT_AUDIO);
 
@@ -414,9 +430,57 @@ static void st_raw_video_qrcode_decode(struct sync_test_output *st, struct video
 			st->q_ms = st->qr_data.q_ms;
 		}
 
+		/* Frame-drop detection */
+		{
+			int32_t cur_index = (int32_t)st->qr_data.index;
+			uint32_t index_max = st->qr_data.index_max;
+			st->last_qr_index_max = index_max;
+			st->total_frames_received++;
+			st->frames_without_qr = 0;
+
+			if (st->last_qr_index >= 0) {
+				int32_t expected = (st->last_qr_index + 1) % (int32_t)index_max;
+				if (cur_index != expected) {
+					int dropped = ((int32_t)index_max + cur_index - expected) % (int32_t)index_max;
+					if (dropped > 0 && (uint32_t)dropped < index_max / 2) {
+						st->total_frames_dropped += dropped;
+
+						struct frame_drop_event_s drop_data;
+						drop_data.timestamp = frame->timestamp - st->start_ts;
+						drop_data.expected_index = expected;
+						drop_data.received_index = cur_index;
+						drop_data.dropped_count = dropped;
+						drop_data.total_received = st->total_frames_received;
+						drop_data.total_dropped = st->total_frames_dropped;
+
+						uint8_t stack[128];
+						struct calldata cd;
+						calldata_init_fixed(&cd, stack, sizeof(stack));
+						auto *sh = obs_output_get_signal_handler(st->context);
+						calldata_set_ptr(&cd, "data", &drop_data);
+						signal_handler_signal(sh, "frame_drop_detected", &cd);
+
+						blog(LOG_DEBUG, "[sync-test] frame_drop: dropped=%d expected_idx=%d received_idx=%d total_dropped=%" PRIu64 " total_received=%" PRIu64,
+						     dropped, expected, cur_index,
+						     st->total_frames_dropped, st->total_frames_received);
+					}
+				}
+			}
+			st->last_qr_index = cur_index;
+		}
+
+		/* For single-frame QR patterns (q_ms <= 34), fire video_marker_found
+		 * directly since there are no checkerboard frames for zero-crossing. */
+		if (st->qr_data.q_ms <= 34)
+			video_marker_found(st, frame->timestamp, 1.0f);
+
 		st->video_marker_max_ts = frame->timestamp + st->qr_data.q_ms * 3 * 1000000;
 		st->video_level_prev = 0;
 	}
+
+	/* Track frames without QR for diagnostics */
+	if (num_codes == 0 && st->last_qr_index >= 0)
+		st->frames_without_qr++;
 }
 
 static void st_raw_video_find_marker(struct sync_test_output *st, struct video_data *frame)
@@ -514,10 +578,32 @@ static void sync_index_found(struct sync_test_output *st, int index, uint64_t ts
 			continue;
 		}
 
+		/* Skip already-matched entries (kept for identify_audio_index_max) */
+		if (it->matched) {
+			it++;
+			continue;
+		}
+
 		if ((it->video_ts && !is_video) || (it->audio_ts && is_video)) {
 			(is_video ? it->video_ts : it->audio_ts) = ts;
 			if (is_video)
 				it->index_max = index_max;
+
+			/* Reject stale matches: after video dropout, old audio entries
+			 * can match new video events producing wrong latency. Check that
+			 * the new latency doesn't deviate too far from the baseline. */
+			int64_t latency_ns = (int64_t)it->audio_ts - (int64_t)it->video_ts;
+			if (st->has_sync_baseline) {
+				int64_t deviation = latency_ns - st->last_sync_latency_ns;
+				if (deviation > 1000000000LL || deviation < -1000000000LL) {
+					st->sync_indices.erase(it);
+					break;
+				}
+			}
+
+			st->last_sync_latency_ns = latency_ns;
+			st->has_sync_baseline = true;
+			it->matched = true;
 
 			signal_sync_found(st->context, &*it);
 
